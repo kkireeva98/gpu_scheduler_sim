@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use std::env;
-use std::fmt::Debug;
 use std::fs::File;
 use rstest::rstest;
+
 use super::*;
 
 #[rstest]
@@ -38,9 +37,11 @@ fn read_node_spec_csv( #[case] node_spec_csv: &str ) {
         openb-pod-0098,8000,30517,1,320,,BE,Running,10020315,10020891,10020315"
 )]
 #[case("name,cpu_milli,memory_mib,num_gpu,gpu_milli,gpu_spec,qos,pod_phase,creation_time,deletion_time,scheduled_time
-        openb-pod-7561,3152,5600,1,810,,BE,Failed,12811529,12812203,12811775
-        openb-pod-7562,11400,77824,1,1000,,LS,Running,12811533,12814085,12811570
-        openb-pod-7563,11300,49152,1,1000,V100M16|V100M32,LS,Running,12811565,12811794,12811675"
+        openb-pod-7852,11300,49152,1,1000,V100M16|V100M32,LS,Running,12844303,12844554,12844441
+        openb-pod-7854,11300,49152,1,1000,P100|V100M16|V100M32,LS,Running,12844338,12844584,12844441
+        openb-pod-7855,11300,49152,1,1000,P100|T4|V100M16|V100M32,LS,Running,12844373,12844681,12844449
+        openb-pod-7857,11300,49152,1,1000,T4,LS,Running,12844752,12845090,12844754
+        openb-pod-7858,11300,49152,1,1000,G3,LS,Running,12844783,12844942,12844822"
 )]
 fn read_pod_spec_csv( #[case] node_spec_csv: &str ) {
 

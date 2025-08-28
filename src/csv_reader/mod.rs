@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::fmt::Formatter;
-use std::str::FromStr;
 use serde::{de, Deserialize, Deserializer};
 
 use crate::types::*;
@@ -25,20 +24,20 @@ where
 
 
 // Handle special case for parsing GPU Specs for Pod Specs, ei V100M16|V100M32
-pub fn parse_multi_spec<'de, D>( deserializer : D ) -> Result< MODELS, D::Error> where
+pub fn parse_gpu_spec<'de, D>( deserializer : D ) -> Result< MODEL, D::Error> where
     D: Deserializer<'de> {
 
     struct MultiSpecVisitor;
 
     impl<'de> de::Visitor<'de> for MultiSpecVisitor {
-        type Value = MODELS;
+        type Value = MODEL;
 
         fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
             formatter.write_str("valid gpu_spec string")
         }
 
         fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> where E: de::Error {
-            if v.is_empty() { return Ok(Vec::new()); }
+            if v.is_empty() { return Ok(MODEL::default()); }
 
             v.split("|")
                 .map(|str| {

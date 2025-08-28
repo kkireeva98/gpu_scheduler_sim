@@ -1,26 +1,37 @@
+#![allow(unused)]
+
+use bitflags::bitflags;
 
 
 #[derive(Debug, Clone)]
 #[derive(serde::Deserialize)]
 #[derive(Eq, Hash, PartialEq)]
-pub enum GpuSpec{
-    A10,
-    G2,
-    G3,
-    P100,
-    T4,
-    V100M16,
-    V100M32,
+#[derive(Default)]
+pub struct GpuSpec(u32);
+
+bitflags! {
+    impl GpuSpec: u32 {
+        const A10 = 1;
+        const G2 = 2;
+        const G3 = 4;
+        const P100 = 8;
+        const T4 = 16;
+        const V100M16 = 32;
+        const V100M32 = 64;
+    }
 }
 
 
 pub type NODE = usize;
 pub type POD = usize;
+
 pub type CPU = u32;
 pub type MEM = u32;
+
+pub type NUM = u32;
 pub type GPU = u32;
-pub type MODEL = Option<GpuSpec>;
-pub type MODELS = Vec<GpuSpec>;
+
+pub type MODEL = GpuSpec;
 
 
 #[derive(Debug, Clone)]
@@ -30,7 +41,8 @@ struct NodeSpec {
     cpu_milli: CPU,
     memory_mib: MEM,
     #[serde(rename = "gpu")]
-    num_gpu: GPU,
+    num_gpu: NUM,
+    #[serde(deserialize_with = "crate::csv_reader::parse_gpu_spec")]
     model: MODEL,
 }
 
@@ -41,11 +53,11 @@ struct NodeSpec {
 struct PodSpec {
     cpu_milli: CPU,
     memory_mib: MEM,
-    num_gpu: GPU,
+    num_gpu: NUM,
     gpu_milli: GPU,
     #[serde(rename = "gpu_spec")]
-    #[serde(deserialize_with = "crate::csv_reader::parse_multi_spec")]
-    model: MODELS
+    #[serde(deserialize_with = "crate::csv_reader::parse_gpu_spec")]
+    model: MODEL
 }
 
 impl TryFrom<&str> for GpuSpec {
