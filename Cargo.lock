@@ -98,6 +98,7 @@ name = "gpu_scheduler_sim"
 version = "0.1.0"
 dependencies = [
  "csv",
+ "public",
  "rstest",
  "serde",
 ]
@@ -159,6 +160,12 @@ checksum = "89ae43fd86e4158d6db51ad8e2b80f313af9cc74f5c0e03ccb87de09998732de"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "public"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "667546e771dadcc524095906f6b8e6182548519be5f27fd9cb09676b1a3e5cef"
 
 [[package]]
 name = "quote"
