@@ -1,20 +1,48 @@
+#![allow(unused)]
 #[macro_use]
 extern crate public;
-use std::fs::File;
 
 
 mod csv_reader;
 mod types;
 
-use crate::csv_reader::*;
-use crate::types::*;
+
+const NUM_LOOPS: u32 = 10;
+
+fn sample_task() {
+    // consume from backlog if not empty
+    
+    // Sample from trace file
+}
+
+
+fn schedule_workload() {
+    let condition = true;
+    
+    while (condition) {
+        sample_task();
+        
+        // heuristic.schedule(task)
+        
+        // update condition
+        // update metrics
+    }
+
+    // return metrics
+}
+
 
 fn main() {
-    let file_path = "clusterdata/pod_data/gpuspec33.csv";
-    let file = File::open(file_path).expect("file not found");
+    // Init scheduler
 
-    process_csv(file, |i, record: PodSpec| {
-        println!("{}: {:?}", i, record);
-        Ok(())
-    }).unwrap();
+    // Empty backlog queue
+
+    // Evaluation loop
+    for _ in 0..NUM_LOOPS {
+        schedule_workload();
+
+        // Update performance
+    }
+
+    // Report overall performance
 }

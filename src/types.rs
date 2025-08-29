@@ -1,7 +1,5 @@
 #![allow(unused)]
-
 use bitflags::bitflags;
-
 
 #[derive(Debug, Clone)]
 #[derive(serde::Deserialize)]
@@ -36,6 +34,7 @@ pub type MODEL = GpuSpec;
 
 #[derive(Debug, Clone)]
 #[derive(serde::Deserialize)]
+#[derive(PartialEq, Eq)]
 #[public]
 struct NodeSpec {
     cpu_milli: CPU,
@@ -49,6 +48,8 @@ struct NodeSpec {
 
 #[derive(Debug, Clone)]
 #[derive(serde::Deserialize)]
+#[derive(PartialEq, Eq)]
+#[derive(Hash)]
 #[public]
 struct PodSpec {
     cpu_milli: CPU,
@@ -57,22 +58,43 @@ struct PodSpec {
     gpu_milli: GPU,
     #[serde(rename = "gpu_spec")]
     #[serde(deserialize_with = "crate::csv_reader::parse_gpu_spec")]
+    #[serde(default)]
     model: MODEL
 }
 
-impl TryFrom<&str> for GpuSpec {
-    type Error = ();
+impl std::fmt::Display for GpuSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        bitflags::parser::to_writer(self, f)
+    }
+}
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "A10" => Ok(GpuSpec::A10),
-            "G2" => Ok(GpuSpec::G2),
-            "G3" => Ok(GpuSpec::G3),
-            "P100" => Ok(GpuSpec::P100),
-            "T4" => Ok(GpuSpec::T4),
-            "V100M16" => Ok(GpuSpec::V100M16),
-            "V100M32" => Ok(GpuSpec::V100M32),
-            _ => Err(()),
-        }
+impl std::fmt::Display for NodeSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{: >4.1} cpu\t{: >4.1} GiB\t{: >4.1} GPU\t{: <4}",
+               self.cpu_milli / 1000,
+               self.memory_mib / 1024,
+               self.num_gpu,
+               match &self.model {
+                   GpuSpec(0) => "_",
+                   model => &model.to_string(),
+               },
+        )
+    }
+}
+
+impl std::fmt::Display for PodSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{: >4.1} cpu\t{: >4.1} GiB\t{: >4.1} GPU\t{: <4}",
+               self.cpu_milli as f64 / 1000_f64,
+               self.memory_mib as f64 / 1024_f64,
+               match self.num_gpu {
+                   1 => self.gpu_milli as f64 / 1000_f64,
+                   n => n as f64,
+               },
+               match &self.model {
+                   GpuSpec(0) => "_",
+                   model => &model.to_string(),
+               },
+        )
     }
 }

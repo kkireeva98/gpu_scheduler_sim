@@ -1,10 +1,9 @@
 use std::error::Error;
-use std::fmt::Formatter;
+use std::fmt::{Debug, Formatter};
 use serde::{de, Deserialize, Deserializer};
 
 use crate::types::*;
 
-#[cfg(test)]
 mod tests;
 
 pub fn process_csv<T, R, F>(csv_reader: R, mut callback: F ) -> Result<(), Box<dyn Error>>
@@ -37,12 +36,9 @@ pub fn parse_gpu_spec<'de, D>( deserializer : D ) -> Result< MODEL, D::Error> wh
         }
 
         fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> where E: de::Error {
-            if v.is_empty() { return Ok(MODEL::default()); }
-
-            v.split("|")
-                .map(|str| {
-                    GpuSpec::try_from(str).map_err(|_| E::custom(format!("invalid gpu_spec: {}", str)))
-                }).collect()
+            bitflags::parser::from_str(v).map_err(|err|
+                E::custom(format!("Error: {}, invalid gpu_spec: {}", err.to_string(), v))
+            )
         }
     }
 
