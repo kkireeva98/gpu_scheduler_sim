@@ -5,6 +5,7 @@ extern crate public;
 
 mod csv_reader;
 mod types;
+mod evaluator;
 
 
 const NUM_LOOPS: u32 = 10;
