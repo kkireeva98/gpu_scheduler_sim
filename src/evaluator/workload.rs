@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
+use rand::distr::Uniform;
 use rand::prelude::*;
 
 
@@ -11,23 +12,26 @@ use super::*;
 type PodSpecKey = PodSpec;
 type PodSpecValue = usize;
 
+
 pub struct Workload {
 
     name : String,
-    rng: ThreadRng,
 
-    backlog: VecDeque<PodSpec>,
+    drain_backlog: bool,
+    backlog: VecDeque<POD>,
 
-    num_tasks: usize,
+    num_tasks: POD,
+    tasks: Vec<PodSpec>,
     task_count: HashMap<PodSpecKey, PodSpecValue>,
 
-    tasks: Vec<PodSpec>,
+    rng: ThreadRng,
+    uniform: Uniform<POD>,
 }
 
 impl Workload {
-    fn new( name: String, pod_csv : impl Read )  -> Self {
+    pub fn new( name: String, pod_csv : impl Read )  -> Self {
 
-        let rng = rand::rng();
+        let drain_backlog = false;
         let backlog = VecDeque::new();
         let mut task_count = HashMap::new();
         let mut tasks = Vec::new();
@@ -42,54 +46,86 @@ impl Workload {
         }).expect("Failed to process Workload CSV");
 
         let num_tasks = tasks.len();
+        let rng = rand::rng();
+        let uniform = Uniform::new(0, num_tasks).unwrap();
 
-        Self {name, rng, backlog, num_tasks, task_count, tasks }
+
+        Self {  name,
+                rng, uniform,
+                drain_backlog, backlog,
+                num_tasks, task_count, tasks
+        }
     }
 
-    fn next_task(&mut self) -> PodSpec {
-        if let Some(m) = self.backlog.pop_front() {
-            return m;
+    // MUTABLE
+
+    pub fn next_task(&mut self) -> POD {
+        if self.drain_backlog {
+            if let Some(m) = self.backlog.pop_front() {
+                return m;
+            }
+
+            // Completely emptied,
+            self.lock_backlog()
         }
 
-        // Alternative is to use rand::distr::weighted_index to sample based on counts
-        // This is much simpler.
-        self.tasks.choose(&mut self.rng).unwrap().clone()
+        // Select random index
+        self.uniform.sample(&mut self.rng)
     }
 
-    fn task_count( &self, m : PodSpec ) -> usize {
-        let &count = self.task_count.get(&m).unwrap_or(&0);
+    pub fn add_to_backlog(&mut self, m : POD ) {
+        if self.backlog.is_empty() { self.lock_backlog() }
+
+        self.backlog.push_back(m);
+    }
+
+    pub fn lock_backlog(&mut self) { self.drain_backlog = false; }
+
+    pub fn unlock_backlog(&mut self) { self.drain_backlog = true; }
+
+    // IMMUTABLE
+
+    pub fn task(&self, m: POD ) -> &PodSpec {
+        &self.tasks[m]
+    }
+
+    pub fn task_count( &self, task : &PodSpec ) -> usize {
+        let &count = self.task_count.get(task).unwrap_or(&0);
         count
     }
 
-
-    fn task_freq( &self, m : PodSpec ) -> f64 {
-        let &count = self.task_count.get(&m).unwrap_or(&0);
-        count as f64 / self.num_tasks as f64
+    pub fn tasks_size(&self) -> usize {
+        self.num_tasks
     }
 
-    fn add_to_backlog(&mut self, m : PodSpec ) {
-        self.backlog.push_back(m);
+    pub fn backlog_size(&self) -> usize {
+        self.backlog.len()
     }
 }
 
 impl std::fmt::Display for Workload {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f);
         writeln!(f, "Workload ({})", self.name)?;
 
+
         writeln!(f, "Backlog -- {} tasks", self.backlog.len())?;
-        self.backlog.iter().try_for_each( |m| {
-            writeln!(f, "{}", m)
+        self.backlog.iter().try_for_each( |&m| {
+            writeln!(f, "[{}]\t{}", m, self.tasks[m])
         })?;
+
 
         let mut task_count: Vec<(&PodSpecKey, &PodSpecValue)> = self.task_count.iter().collect();
         task_count.sort_by_key(|(m, count) | {**count});
 
 
         writeln!(f, "Task Counts -- {} total, {} unique", self.num_tasks, task_count.len())?;
-        task_count.iter().rev().try_for_each(|(m, count)| {
-            writeln!(f, "\t{: <4.2} -->\t{}",  **count, m)
+        task_count.iter().rev().take(10).try_for_each(|(task, count)| {
+            writeln!(f, "({})\t{}", count, task)
         } )?;
+
+        writeln!(f, ". . .");
 
         Ok(())
     }
@@ -143,12 +179,16 @@ mod tests {
             workload.next_task(),
             workload.next_task());
 
-        workload.add_to_backlog(a.clone());
-        workload.add_to_backlog(b.clone());
-        workload.add_to_backlog(c.clone());
+        workload.add_to_backlog(a);
+        workload.add_to_backlog(b);
+        workload.add_to_backlog(c);
 
         assert_eq!(workload.next_task(), a);
         assert_eq!(workload.next_task(), b);
         assert_eq!(workload.next_task(), c);
+
+        println!("{}", workload.task(a));
+        println!("{}", workload.task(b));
+        println!("{}", workload.task(c));
     }
 }

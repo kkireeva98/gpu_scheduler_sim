@@ -2,48 +2,34 @@
 #[macro_use]
 extern crate public;
 
-
 mod csv_reader;
 mod types;
 mod evaluator;
+mod heuristics;
 
+use std::fs::File;
+use heuristics::*;
+use types::*;
 
-const NUM_LOOPS: u32 = 10;
-
-fn sample_task() {
-    // consume from backlog if not empty
-    
-    // Sample from trace file
-}
-
-
-fn schedule_workload() {
-    let condition = true;
-    
-    while (condition) {
-        sample_task();
-        
-        // heuristic.schedule(task)
-        
-        // update condition
-        // update metrics
-    }
-
-    // return metrics
-}
-
+use crate::evaluator::*;
+use crate::evaluator::workload::Workload;
 
 fn main() {
-    // Init scheduler
 
-    // Empty backlog queue
+    let node_csv = File::open(&"clusterdata/node_data/all_nodes.csv").expect("node file not found");
+    let pod_csv = File::open(&"clusterdata/pod_data/gpuspec33.csv").expect("pod file not found");
 
-    // Evaluation loop
-    for _ in 0..NUM_LOOPS {
-        schedule_workload();
 
-        // Update performance
-    }
+    let w : Workload = Workload::new(String::from("gpuspec33"), pod_csv);
+    let c : Cluster = Cluster::default();
 
-    // Report overall performance
+    let mut eval: Evaluator = Evaluator::new(
+        random_scheduler,
+        backlog_size,
+        w,
+        c,
+    );
+
+    eval.evaluate()
+
 }
