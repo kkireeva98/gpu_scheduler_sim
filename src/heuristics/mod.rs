@@ -18,7 +18,7 @@ pub fn backlog_size( evaluator: &Evaluator, metrics: &Metrics ) -> bool {
 
 // Simple Scheduler
 
-pub fn random_scheduler( evaluator: &Evaluator, m: POD ) -> Option<NODE> {
+pub fn random_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<NODE> {
     let mut rng = rand::rng();
     let uniform = Uniform::new(0, 1000).unwrap();
 

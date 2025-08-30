@@ -4,12 +4,12 @@ use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 use rand::distr::Uniform;
 use rand::prelude::*;
-
-
+use std::cell::RefCell;
+use std::rc::Rc;
 use super::*;
 
 
-type PodSpecKey = PodSpec;
+type PodSpecKey = PodSpecStruct;
 type PodSpecValue = usize;
 
 
@@ -17,28 +17,27 @@ pub struct Workload {
 
     name : String,
 
-    drain_backlog: bool,
-    backlog: VecDeque<POD>,
+    rng: RefCell<ThreadRng>,
+
+    drain_backlog: RefCell<bool>,
+    backlog: RefCell<VecDeque<PodSpec>>,
 
     num_tasks: POD,
     tasks: Vec<PodSpec>,
     task_count: HashMap<PodSpecKey, PodSpecValue>,
-
-    rng: ThreadRng,
-    uniform: Uniform<POD>,
 }
 
 impl Workload {
     pub fn new( name: String, pod_csv : impl Read )  -> Self {
 
-        let drain_backlog = false;
-        let backlog = VecDeque::new();
+        let drain_backlog = RefCell::new(false);
+        let backlog = RefCell::new(VecDeque::new());
         let mut task_count = HashMap::new();
         let mut tasks = Vec::new();
 
-        process_csv(pod_csv, |_, record: PodSpec| {
+        process_csv(pod_csv, |_, record: PodSpecStruct | {
 
-            tasks.push(record.clone());
+            tasks.push(Rc::new(record.clone()));
             *task_count.entry(record).or_insert(0) += 1;
 
             Ok(())
@@ -46,47 +45,47 @@ impl Workload {
         }).expect("Failed to process Workload CSV");
 
         let num_tasks = tasks.len();
-        let rng = rand::rng();
+        let rng = RefCell::new(rand::rng());
         let uniform = Uniform::new(0, num_tasks).unwrap();
 
 
         Self {  name,
-                rng, uniform,
+                rng,
                 drain_backlog, backlog,
                 num_tasks, task_count, tasks
         }
     }
 
-    // MUTABLE
-
-    pub fn next_task(&mut self) -> POD {
-        if self.drain_backlog {
-            if let Some(m) = self.backlog.pop_front() {
-                return m;
-            }
-
-            // Completely emptied,
-            self.lock_backlog()
+    pub fn next_task(&self) -> PodSpec {
+        if let Some(m) = self.pop_backlog() {
+            return m;
         }
 
-        // Select random index
-        self.uniform.sample(&mut self.rng)
+        // Select random task
+        let task = self.tasks.choose(&mut self.rng.borrow_mut()).unwrap();
+        task.to_owned()
     }
 
-    pub fn add_to_backlog(&mut self, m : POD ) {
-        if self.backlog.is_empty() { self.lock_backlog() }
+    pub fn push_backlog(&self, task: PodSpec ) {
+        if self.backlog.borrow().is_empty() { self.drain_backlog(false) }
 
-        self.backlog.push_back(m);
+        self.backlog.borrow_mut().push_back(task);
     }
 
-    pub fn lock_backlog(&mut self) { self.drain_backlog = false; }
+    pub fn pop_backlog(&self) -> Option<PodSpec>{
+        if *self.drain_backlog.borrow() == false { return  None}
 
-    pub fn unlock_backlog(&mut self) { self.drain_backlog = true; }
+        let task_opt = self.backlog.borrow_mut().pop_front();
+        if task_opt.is_none() {
+            // Completely emptied,
+            self.drain_backlog(false)
+        }
 
-    // IMMUTABLE
+        task_opt
+    }
 
-    pub fn task(&self, m: POD ) -> &PodSpec {
-        &self.tasks[m]
+    pub fn drain_backlog(&self, drain : bool ) {
+        *self.drain_backlog.borrow_mut() = drain;
     }
 
     pub fn task_count( &self, task : &PodSpec ) -> usize {
@@ -99,7 +98,7 @@ impl Workload {
     }
 
     pub fn backlog_size(&self) -> usize {
-        self.backlog.len()
+        self.backlog.borrow().len()
     }
 }
 
@@ -110,9 +109,9 @@ impl std::fmt::Display for Workload {
         writeln!(f, "Workload ({})", self.name)?;
 
 
-        writeln!(f, "Backlog -- {} tasks", self.backlog.len())?;
-        self.backlog.iter().try_for_each( |&m| {
-            writeln!(f, "[{}]\t{}", m, self.tasks[m])
+        writeln!(f, "Backlog -- {} tasks", self.backlog_size())?;
+        self.backlog.borrow().iter().try_for_each( |task| {
+            writeln!(f, "\t{}", task)
         })?;
 
 
@@ -172,23 +171,26 @@ mod tests {
 
         let mut workload = Workload::new(file_path, file);
 
-        // Simulate failing to schedule 3 tasks, then fetching them again from the backlog
-
+        // Fetch 3 tasks
         let (a, b, c) =
             (workload.next_task(),
             workload.next_task(),
             workload.next_task());
 
-        workload.add_to_backlog(a);
-        workload.add_to_backlog(b);
-        workload.add_to_backlog(c);
+        println!("{}", a);
+        println!("{}", b);
+        println!("{}", c);
+
+        // Oops, we failed to schedule them this round
+        workload.push_backlog(a.clone());
+        workload.push_backlog(b.clone());
+        workload.push_backlog(c.clone());
+
+        // Begin next round... Workload should serve these three first.
+        workload.drain_backlog(true);
 
         assert_eq!(workload.next_task(), a);
         assert_eq!(workload.next_task(), b);
         assert_eq!(workload.next_task(), c);
-
-        println!("{}", workload.task(a));
-        println!("{}", workload.task(b));
-        println!("{}", workload.task(c));
     }
 }

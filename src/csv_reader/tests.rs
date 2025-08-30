@@ -50,7 +50,7 @@ mod tests {
 
         let buffer = node_spec_csv.as_bytes();
 
-        process_csv(buffer, |i, record: PodSpec| {
+        process_csv(buffer, |i, record: PodSpecStruct| {
             println!("{}: {:?}", i, record);
             Ok(())
         }).unwrap();

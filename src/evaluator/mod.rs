@@ -7,7 +7,7 @@ use workload::*;
 
 
 // Decides which node to bind the next task to
-type Scheduler = fn( evaluator: &Evaluator, m: POD ) -> Option<NODE>;
+type Scheduler = fn( evaluator: &Evaluator, task: PodSpec ) -> Option<NODE>;
 
 // Decides when to deploy workload instead of waiting for more tasks
 type Decider = fn( evaluator: &Evaluator, metrics: &Metrics ) -> bool;
@@ -49,7 +49,7 @@ const NUM_LOOPS: u32 = 4;
 
 impl Evaluator {
 
-    pub fn new( scheduler: Scheduler, decider: Decider, workload: Workload, cluster: Cluster) -> Self {
+    pub fn new( scheduler: Scheduler, decider: Decider, workload: workload::Workload, cluster: Cluster) -> Self {
 
         Self { scheduler, decider, workload, cluster }
     }
@@ -64,14 +64,14 @@ impl Evaluator {
 
         loop {
             // Sample task
-            let m: POD = self.workload.next_task();
+            let task: PodSpec = self.workload.next_task();
             metrics.tasks_arrived += 1;
 
-            match scheduler_func(self, m) {
+            match scheduler_func(self, task.to_owned()) {
                 None => {
                     // Scheduling failed. Add to backload for next deployment
                     metrics.tasks_delayed += 1;
-                    self.workload.add_to_backlog(m);
+                    self.workload.push_backlog(task);
 
                     //println!("Task {} delayed", m);
                 },
@@ -89,7 +89,7 @@ impl Evaluator {
         }
 
         // Tasks "deployed". Clear cluster for next round, reset backlog
-        self.workload.unlock_backlog();
+        self.workload.drain_backlog(true);
 
         println!("{:?}", metrics);
         metrics

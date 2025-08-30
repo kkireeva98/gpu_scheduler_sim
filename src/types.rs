@@ -1,4 +1,6 @@
 #![allow(unused)]
+
+use std::rc::Rc;
 use bitflags::bitflags;
 
 #[derive(Debug, Clone)]
@@ -45,13 +47,15 @@ struct NodeSpec {
     model: MODEL,
 }
 
+#[public]
+type PodSpec = Rc<PodSpecStruct>;
 
 #[derive(Debug, Clone)]
 #[derive(serde::Deserialize)]
 #[derive(PartialEq, Eq)]
 #[derive(Hash)]
 #[public]
-struct PodSpec {
+struct PodSpecStruct {
     cpu_milli: CPU,
     memory_mib: MEM,
     num_gpu: NUM,
@@ -82,7 +86,7 @@ impl std::fmt::Display for NodeSpec {
     }
 }
 
-impl std::fmt::Display for PodSpec {
+impl std::fmt::Display for PodSpecStruct {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{: >4.1} cpu\t{: >4.1} GiB\t{: >4.1} GPU\t{: <4}",
                self.cpu_milli as f64 / 1000_f64,
