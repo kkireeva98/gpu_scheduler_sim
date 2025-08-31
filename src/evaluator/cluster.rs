@@ -28,12 +28,12 @@ struct ClusterStruct {
     // and only update when binding a task to a node.
     frag_delta: FragDelta,
 
-    gpu_total: GPU,
-    gpu_unallocated: GPU,
-    frag_total: GPU,
+    gpu_total: RefCell<GPU>,
+    gpu_unallocated: RefCell<GPU>,
+    frag_total: RefCell<GPU>,
 
-    frag_rate: f64,     // frag_total / gpu_unallocated
-    alloc_rate: f64,    // 1 - gpu_unallocated / gpu_total
+    frag_rate: RefCell<f64>,     // frag_total / gpu_unallocated
+    alloc_rate: RefCell<f64>,    // 1 - gpu_unallocated / gpu_total
 }
 pub type Cluster = Rc<ClusterStruct>;
 
@@ -44,11 +44,12 @@ impl ClusterStruct {
         let mut specs = Vec::new();
         let mut nodes = Vec::new();
 
-        let mut gpu_unallocated = 0;
-        let mut gpu_total = 0;
-        let frag_total = 0;
-        let frag_rate = 0.0;
-        let alloc_rate = 0.0;
+        let mut gpu_unallocated = RefCell::new(0);
+        let mut gpu_total = RefCell::new(0);
+        let frag_total = RefCell::new(0);
+
+        let frag_rate = RefCell::new(0.0);
+        let alloc_rate = RefCell::new(0.0);
 
         let frag_delta = Default::default();
 
@@ -57,8 +58,8 @@ impl ClusterStruct {
             record.gpu_milli = record.num_gpu as GPU * GPU_MILLI;
             let spec = Rc::new( record );
 
-            gpu_unallocated += spec.gpu_milli;
-            gpu_total += spec.gpu_milli;
+            *gpu_unallocated.borrow_mut() += spec.gpu_milli;
+            *gpu_total.borrow_mut() += spec.gpu_milli;
 
             let node = NodeInfoStruct {
                 spec: spec.clone(),
@@ -120,7 +121,7 @@ impl ClusterStruct {
         })
     }
 
-    pub fn bind_task(&mut self, task: PodSpec, n: NODE, opt_g: Option<NUM> ) {
+    pub fn bind_task(&self, task: PodSpec, n: NODE, opt_g: Option<NUM> ) {
         let mut node = self.nodes[n].borrow_mut();
 
         node.cpu_rem -= task.cpu_milli;
@@ -160,8 +161,8 @@ impl ClusterStruct {
 
         // Cluster metrics
 
-        self.gpu_unallocated -= task.gpu_milli;
-        self.alloc_rate = 1f64 - (self.gpu_unallocated as f64 / self.gpu_total as f64);
+        *self.gpu_unallocated.borrow_mut() -= task.gpu_milli;
+        *self.alloc_rate.borrow_mut() = 1f64 - (*self.gpu_unallocated.borrow() as f64 / *self.gpu_total.borrow() as f64);
     }
 }
 
@@ -171,10 +172,10 @@ impl std::fmt::Display for ClusterStruct {
         writeln!(f);
         writeln!(f, "Cluster ({})", self.name)?;
 
-        writeln!(f, "Total GPU: {}", self.gpu_total as f64 / GPU_MILLI as f64 )?;
-        writeln!(f, "Unallocated GPU resources: {}", self.gpu_unallocated as f64 / GPU_MILLI as f64 )?;
+        writeln!(f, "Total GPU: {:.1}", *self.gpu_total.borrow() as f64 / GPU_MILLI as f64 )?;
+        writeln!(f, "Unallocated GPU resources: {:.1}", *self.gpu_unallocated.borrow() as f64 / GPU_MILLI as f64 )?;
 
-        writeln!(f, "Allocation rate: {}", self.alloc_rate)
+        writeln!(f, "Allocation rate: {:.4}", self.alloc_rate.borrow())
     }
 }
 
@@ -217,7 +218,7 @@ mod tests {
         let workload = Rc::new(workload);
         let mut cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
 
-        println!("Cluster: {:?}", cluster);
+        println!("Cluster: {}", cluster);
 
     }
 
@@ -266,6 +267,6 @@ mod tests {
             println!("Before bind:{}\n{}", node.spec.id, node);
         }
 
-        println!("{}", cluster.alloc_rate)
+        println!("{}", cluster.alloc_rate.borrow())
     }
 }

@@ -12,7 +12,7 @@ use cluster::*;
 
 
 // Decides which node to bind the next task to
-type Scheduler = fn( evaluator: &Evaluator, task: PodSpec ) -> Option<NODE>;
+type Scheduler = fn( evaluator: &Evaluator, task: PodSpec ) -> Option<(NODE, Option<NUM>)>;
 
 // Decides when to deploy workload instead of waiting for more tasks
 type Decider = fn( evaluator: &Evaluator, metrics: &Metrics ) -> bool;
@@ -42,12 +42,9 @@ struct Evaluator
     // Tasks to be scheduled
     workload: Workload,
     cluster: Cluster,
-
-    // Reset cluster by just replacing with copy of premade fresh cluster
-    cluster_fresh: ClusterStruct
 }
 
-const NUM_LOOPS: u32 = 4;
+const NUM_LOOPS: u32 = 1;
 
 impl Evaluator {
 
@@ -60,10 +57,10 @@ impl Evaluator {
         let workload = WorkloadStruct::new(String::from("workload"), workload_reader);
         let workload = Rc::new(workload);
 
-        let cluster_fresh= ClusterStruct::new(String::from("cluster"), cluster_reader, workload.clone());
-        let cluster = Rc::new(cluster_fresh.clone());
+        let cluster= ClusterStruct::new(String::from("cluster"), cluster_reader, workload.clone());
+        let cluster = Rc::new(cluster);
 
-        Self { scheduler, decider, workload, cluster, cluster_fresh }
+        Self { scheduler, decider, workload, cluster }
     }
 
     fn schedule_and_deploy(&mut self) -> Metrics {
@@ -82,18 +79,19 @@ impl Evaluator {
                 None => {
                     // Scheduling failed. Add to backload for next deployment
                     metrics.tasks_delayed += 1;
-                    self.workload.push_backlog(task);
+                    self.workload.push_backlog(task.clone());
 
-                    //println!("Task {} delayed", m);
                 },
-                Some(n) => {
+                Some((n, opt_g)) => {
                     // Scheduling succeeded. Apply to cluster
                     metrics.tasks_scheduled += 1;
                     metrics.total_cpu += task.cpu_milli;
                     metrics.total_mem += task.memory_mib;
                     metrics.total_gpu += task.gpu_milli;
 
-                    //println!("Task scheduled {}", self.workload.task(m));
+
+                    self.cluster.bind_task(task, n, opt_g);
+
                 },
 
             }
@@ -104,9 +102,7 @@ impl Evaluator {
 
         // Tasks "deployed". Reset for next round
         self.workload.drain_backlog(true);
-        self.cluster = Rc::new(self.cluster_fresh.clone());
 
-        println!("{:?}", metrics);
         metrics
     }
 
@@ -114,14 +110,14 @@ impl Evaluator {
 
         // Average metrics over a number of loops, to reduce statistical error
         for batch_num in 0..NUM_LOOPS {
-            self.schedule_and_deploy();
+            let metrics = self.schedule_and_deploy();
 
             // Update overall metrics
+            println!("{:?}", metrics);
+            println!("Allocation Rate: {}", self.cluster.alloc_rate.borrow());
         }
 
         // Report overall metrics
-
-        println!("{}", self.workload);
 
     }
 
