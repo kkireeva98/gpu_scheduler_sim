@@ -8,7 +8,7 @@ use crate::types::*;
 // Simple Deciders
 
 pub fn max_tasks_arrived( evaluator: &Evaluator, metrics: &Metrics ) -> bool {
-    metrics.tasks_arrived >= 100
+    metrics.tasks_scheduled + metrics.tasks_delayed >= 100
 }
 
 pub fn backlog_size( evaluator: &Evaluator, metrics: &Metrics ) -> bool {

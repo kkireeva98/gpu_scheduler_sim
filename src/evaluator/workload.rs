@@ -1,4 +1,3 @@
-#![allow(unused)]
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
@@ -8,12 +7,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use super::*;
 
+type TaskCount = HashMap<PodSpecKey, usize>;
 
-type PodSpecKey = PodSpecStruct;
-type PodSpecValue = usize;
-
-
-pub struct Workload {
+#[derive(Debug, Clone)]
+#[public]
+struct WorkloadStruct {
 
     name : String,
 
@@ -24,10 +22,12 @@ pub struct Workload {
 
     num_tasks: POD,
     tasks: Vec<PodSpec>,
-    task_count: HashMap<PodSpecKey, PodSpecValue>,
+    task_count: TaskCount,
 }
+pub type Workload = Rc<WorkloadStruct>;
 
-impl Workload {
+
+impl WorkloadStruct {
     pub fn new( name: String, pod_csv : impl Read )  -> Self {
 
         let drain_backlog = RefCell::new(false);
@@ -35,9 +35,21 @@ impl Workload {
         let mut task_count = HashMap::new();
         let mut tasks = Vec::new();
 
-        process_csv(pod_csv, |_, record: PodSpecStruct | {
+        process_csv(pod_csv, |i, mut record: PodSpecStruct | {
 
-            tasks.push(Rc::new(record.clone()));
+            // Pre-process PodSpec so that gpu_milli can be used directly,
+            // Assuming GPUs are always allocated as one fraction or an integer number.
+            if record.num_gpu != 1 {
+                record.gpu_milli = record.num_gpu as GPU * GPU_MILLI;
+            }
+
+            let task = {
+                let mut record = record.clone();
+                record.id = i;
+                Rc::new(record)
+            };
+
+            tasks.push(task);
             *task_count.entry(record).or_insert(0) += 1;
 
             Ok(())
@@ -46,13 +58,13 @@ impl Workload {
 
         let num_tasks = tasks.len();
         let rng = RefCell::new(rand::rng());
-        let uniform = Uniform::new(0, num_tasks).unwrap();
 
-
-        Self {  name,
-                rng,
-                drain_backlog, backlog,
-                num_tasks, task_count, tasks
+        Self {
+            name,
+            rng,
+            drain_backlog, backlog,
+            num_tasks, tasks,
+            task_count
         }
     }
 
@@ -64,6 +76,11 @@ impl Workload {
         // Select random task
         let task = self.tasks.choose(&mut self.rng.borrow_mut()).unwrap();
         task.to_owned()
+    }
+
+    pub fn task_count( &self, task : &PodSpec ) -> usize {
+        let &count = self.task_count.get(task).unwrap_or(&0);
+        count
     }
 
     pub fn push_backlog(&self, task: PodSpec ) {
@@ -88,21 +105,12 @@ impl Workload {
         *self.drain_backlog.borrow_mut() = drain;
     }
 
-    pub fn task_count( &self, task : &PodSpec ) -> usize {
-        let &count = self.task_count.get(task).unwrap_or(&0);
-        count
-    }
-
-    pub fn tasks_size(&self) -> usize {
-        self.num_tasks
-    }
-
     pub fn backlog_size(&self) -> usize {
         self.backlog.borrow().len()
     }
 }
 
-impl std::fmt::Display for Workload {
+impl std::fmt::Display for WorkloadStruct {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f);
@@ -115,7 +123,7 @@ impl std::fmt::Display for Workload {
         })?;
 
 
-        let mut task_count: Vec<(&PodSpecKey, &PodSpecValue)> = self.task_count.iter().collect();
+        let mut task_count: Vec<(&PodSpecKey, &usize)> = self.task_count.iter().collect();
         task_count.sort_by_key(|(m, count) | {**count});
 
 
@@ -158,7 +166,7 @@ mod tests {
         let file = File::open(&file_path)
             .expect( format!("{} file not found", file_path ).as_str() );
 
-        let workload = Workload::new(file_path, file);
+        let workload = WorkloadStruct::new(file_path, file);
 
         println!("{}", workload);
     }
@@ -169,7 +177,7 @@ mod tests {
         let file = File::open(&file_path)
             .expect( format!("{} file not found", file_path ).as_str() );
 
-        let mut workload = Workload::new(file_path, file);
+        let mut workload = WorkloadStruct::new(file_path, file);
 
         // Fetch 3 tasks
         let (a, b, c) =

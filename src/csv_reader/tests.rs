@@ -26,8 +26,8 @@ mod tests {
 
         let buffer = node_spec_csv.as_bytes();
 
-        process_csv(buffer, |i, record: NodeSpec| {
-            println!("{}: {:?}", i, record);
+        process_csv(buffer, |i, record: NodeSpecStruct| {
+            println!("{}: {}", i, record);
             Ok(())
         }).unwrap();
     }
@@ -51,47 +51,8 @@ mod tests {
         let buffer = node_spec_csv.as_bytes();
 
         process_csv(buffer, |i, record: PodSpecStruct| {
-            println!("{}: {:?}", i, record);
+            println!("{}: {}", i, record);
             Ok(())
         }).unwrap();
-    }
-
-
-    type NodeSpecKey = (MODEL, GPU);
-    type NodeSpecValue = Vec<NODE>;
-
-    type NodeHash = HashMap<NodeSpecKey, NodeSpecValue>;
-
-    #[rstest]
-    #[case("gpu_nodes.csv")]
-    #[case("all_nodes.csv")]
-    fn read_node_spec_csv_file(#[case] file_name: &str) {
-
-        let prefix = "clusterdata/node_data/";
-        let file_path = prefix.to_owned() + file_name;
-
-        println!("file_path: {}", file_path);
-
-        let file = File::open(&file_path)
-            .expect( format!("{} file not found", file_path ).as_str() );
-
-        let mut nodes_hash = NodeHash::new();
-        let mut nodes: Vec<NodeSpec> = Vec::new();
-
-        process_csv(file, |i, record: NodeSpec| {
-            nodes.push(record.clone());
-
-            let key = (record.model, record.num_gpu);
-            let value = i;
-
-            nodes_hash.entry(key).or_insert(Vec::new()).push(value);
-
-            Ok(())
-
-        }).unwrap();
-
-        for (key, value) in nodes_hash.iter() {
-            println!("{}: {} ", key.0, value.len());
-        }
     }
 }
