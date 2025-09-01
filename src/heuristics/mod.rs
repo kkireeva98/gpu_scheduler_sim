@@ -8,12 +8,17 @@ use crate::types::*;
 
 // Simple Deciders
 
-pub fn max_tasks_arrived( evaluator: &Evaluator, metrics: &Metrics ) -> bool {
-    metrics.tasks_scheduled + metrics.tasks_delayed >= 100
+pub fn max_delayed( evaluator: &Evaluator ) -> bool {
+    let metrics = evaluator.workload.metrics.borrow();
+
+    metrics.tasks_delayed >= 500
 }
 
-pub fn backlog_size( evaluator: &Evaluator, metrics: &Metrics ) -> bool {
-    evaluator.workload.backlog_size() >= 1
+pub fn max_tasks_arrived( evaluator: &Evaluator ) -> bool {
+    let metrics = evaluator.workload.metrics.borrow();
+
+    // Allow for release valve by checking that delayed tasks are not too high
+    metrics.tasks_arrived >= 5000 || max_delayed( evaluator)
 }
 
 // Simple Scheduler

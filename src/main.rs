@@ -21,7 +21,7 @@ fn main() {
 
     let mut eval: Evaluator = Evaluator::new(
         random_scheduler,
-        backlog_size,
+        max_tasks_arrived,
         pod_csv,
         node_csv,
     );

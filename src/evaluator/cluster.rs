@@ -20,7 +20,6 @@ struct ClusterStruct {
     workload: Workload,
 
     num_nodes: NODE,
-    specs: Vec<NodeSpec>,
     nodes: Vec<NodeInfo>,
 
     // Key Optimization:
@@ -28,38 +27,54 @@ struct ClusterStruct {
     // and only update when binding a task to a node.
     frag_delta: FragDelta,
 
-    gpu_total: RefCell<GPU>,
-    gpu_unallocated: RefCell<GPU>,
-    frag_total: RefCell<GPU>,
+    metrics: RefCell<NodeMetrics>,
 
-    frag_rate: RefCell<f64>,     // frag_total / gpu_unallocated
-    alloc_rate: RefCell<f64>,    // 1 - gpu_unallocated / gpu_total
 }
 pub type Cluster = Rc<ClusterStruct>;
 
 
+#[derive(Debug, Clone)]
+#[derive(Default)]
+#[public]
+struct NodeMetrics {
+    gpu_total: GPU,
+    gpu_unallocated: GPU,
+    frag_total: GPU,
+
+    frag_rate: f64,     // frag_total / gpu_unallocated
+    alloc_rate: f64,    // 1 - gpu_unallocated / gpu_total
+}
+
 impl ClusterStruct {
 
-    pub fn new( name: String, node_csv : impl Read, workload: Workload ) -> Self {
+    pub fn node_specs_from_reader( node_reader: impl  Read ) -> Vec<NodeSpec> {
         let mut specs = Vec::new();
-        let mut nodes = Vec::new();
 
-        let mut gpu_unallocated = RefCell::new(0);
-        let mut gpu_total = RefCell::new(0);
-        let frag_total = RefCell::new(0);
-
-        let frag_rate = RefCell::new(0.0);
-        let alloc_rate = RefCell::new(0.0);
-
-        let frag_delta = Default::default();
-
-        process_csv( node_csv, | i, mut record: NodeSpecStruct | {
+        process_csv( node_reader, | i, mut record: NodeSpecStruct | {
             record.id = i;
             record.gpu_milli = record.num_gpu as GPU * GPU_MILLI;
             let spec = Rc::new( record );
 
-            *gpu_unallocated.borrow_mut() += spec.gpu_milli;
-            *gpu_total.borrow_mut() += spec.gpu_milli;
+            specs.push( spec);
+            Ok(())
+
+        }).expect("Failed to process Cluster CSV");
+
+        specs
+    }
+
+
+    pub fn new( name: String, specs: &Vec<NodeSpec>, workload: Workload ) -> Self {
+        let num_nodes = specs.len();
+        let mut nodes = Vec::with_capacity(num_nodes);
+
+        let mut metrics = NodeMetrics::default();
+        let frag_delta = Default::default();
+
+        for spec in specs {
+
+            metrics.gpu_unallocated += spec.gpu_milli;
+            metrics.gpu_total += spec.gpu_milli;
 
             let node = NodeInfoStruct {
                 spec: spec.clone(),
@@ -74,30 +89,22 @@ impl ClusterStruct {
                 gpu_frag: 0,
             };
 
-            specs.push( spec.clone() );
             nodes.push( Rc::new(RefCell::new(node)) );
 
-            Ok(())
+            // TODO: calculate frag_delta
+        }
 
-        }).expect("Failed to process Cluster CSV");
 
-        let num_nodes = specs.len();
         let rng = RefCell::new(rand::rng());
-
-        // TODO: calculate frag_delta
+        let metrics = RefCell::new(metrics);
 
         Self {
             name,
             rng,
             workload,
-
-            num_nodes, specs, nodes,
-
+            num_nodes, nodes,
             frag_delta,
-
-            gpu_total, gpu_unallocated, frag_total,
-
-            frag_rate, alloc_rate,
+            metrics,
         }
     }
 
@@ -156,13 +163,19 @@ impl ClusterStruct {
 
         node.gpu_unallocated -= task.gpu_milli;
 
-        // TODO: gpu frag
+        // TODO: GPU frag and GPU frag delta
 
 
         // Cluster metrics
+        let mut metrics = self.metrics.borrow_mut();
 
-        *self.gpu_unallocated.borrow_mut() -= task.gpu_milli;
-        *self.alloc_rate.borrow_mut() = 1f64 - (*self.gpu_unallocated.borrow() as f64 / *self.gpu_total.borrow() as f64);
+        metrics.gpu_unallocated -= task.gpu_milli;
+        metrics.alloc_rate = 1f64 - (metrics.gpu_unallocated as f64 / metrics.gpu_total as f64);
+    }
+
+    pub fn deploy(&self) {
+        println!("{}", self.metrics.borrow());
+
     }
 }
 
@@ -172,13 +185,26 @@ impl std::fmt::Display for ClusterStruct {
         writeln!(f);
         writeln!(f, "Cluster ({})", self.name)?;
 
-        writeln!(f, "Total GPU: {:.1}", *self.gpu_total.borrow() as f64 / GPU_MILLI as f64 )?;
-        writeln!(f, "Unallocated GPU resources: {:.1}", *self.gpu_unallocated.borrow() as f64 / GPU_MILLI as f64 )?;
+        let write_node = | node: &NodeInfo | -> std::fmt::Result {
+            writeln!(f, "{}", node.borrow())
+        };
 
-        writeln!(f, "Allocation rate: {:.4}", self.alloc_rate.borrow())
+        self.nodes.iter().try_for_each(write_node)
     }
 }
 
+impl std::fmt::Display for NodeMetrics {
+
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Node Metrics:");
+
+        writeln!(f, "Total GPU: {:.1}", self.gpu_total as f64 / GPU_MILLI as f64 )?;
+
+        writeln!(f, "Unallocated GPU resources:  {:.1} -- ({:.2}% allocation rate)",
+                 self.gpu_unallocated as f64 / GPU_MILLI as f64,
+                 self.alloc_rate * 100.0 )
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -209,24 +235,26 @@ mod tests {
     }
 
     #[fixture]
-    fn node_csv() -> File {
-        File::open(&"clusterdata/node_data/all_nodes.csv").expect("node file not found")
+    fn specs() -> Vec<NodeSpec> {
+        let node_reader = File::open(&"clusterdata/node_data/all_nodes.csv").expect("node file not found");
+
+        ClusterStruct::node_specs_from_reader(node_reader)
     }
 
     #[rstest]
-    fn test_create( node_csv: File, workload: WorkloadStruct ) {
+    fn test_create( specs: Vec<NodeSpec>, workload: WorkloadStruct ) {
         let workload = Rc::new(workload);
-        let mut cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
+        let mut cluster = ClusterStruct::new(String::from("cluster"), &specs, workload.clone());
 
         println!("Cluster: {}", cluster);
 
     }
 
     #[rstest]
-    fn test_filter( node_csv: File, workload: WorkloadStruct ) {
+    fn test_filter( specs: Vec<NodeSpec>, workload: WorkloadStruct ) {
 
         let workload = Rc::new(workload);
-        let mut cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
+        let mut cluster = ClusterStruct::new(String::from("cluster"), &specs, workload.clone());
 
         for task in workload.tasks.iter() {
             let nodes: Vec<&NodeInfo> = cluster.filter_nodes( task.clone() ).collect();
@@ -236,10 +264,10 @@ mod tests {
     }
 
     #[rstest]
-    fn test_bind( node_csv: File, workload: WorkloadStruct ) {
+    fn test_bind( specs: Vec<NodeSpec>, workload: WorkloadStruct ) {
 
         let workload = Rc::new(workload);
-        let mut cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
+        let mut cluster = ClusterStruct::new(String::from("cluster"), &specs, workload.clone());
 
         let task = workload.next_task();
         println!("Task:{}\n{}",task.id, task);
@@ -267,6 +295,6 @@ mod tests {
             println!("Before bind:{}\n{}", node.spec.id, node);
         }
 
-        println!("{}", cluster.alloc_rate.borrow())
+        println!("{}", cluster.metrics.borrow().alloc_rate)
     }
 }

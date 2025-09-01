@@ -23,9 +23,24 @@ struct WorkloadStruct {
     num_tasks: POD,
     tasks: Vec<PodSpec>,
     task_count: TaskCount,
+
+    metrics: RefCell<TaskMetrics>
 }
 pub type Workload = Rc<WorkloadStruct>;
 
+
+#[derive(Debug, Clone)]
+#[derive(Default)]
+#[public]
+struct TaskMetrics {
+    tasks_arrived: u32,
+    tasks_scheduled: u32,
+    tasks_delayed: u32,
+
+    total_cpu: CPU,
+    total_mem: MEM,
+    total_gpu: GPU,
+}
 
 impl WorkloadStruct {
     pub fn new( name: String, pod_csv : impl Read )  -> Self {
@@ -58,13 +73,14 @@ impl WorkloadStruct {
 
         let num_tasks = tasks.len();
         let rng = RefCell::new(rand::rng());
+        let metrics = RefCell::new(TaskMetrics::default());
 
         Self {
             name,
             rng,
             drain_backlog, backlog,
-            num_tasks, tasks,
-            task_count
+            num_tasks, tasks, task_count,
+            metrics
         }
     }
 
@@ -74,6 +90,8 @@ impl WorkloadStruct {
         }
 
         // Select random task
+        self.metrics.borrow_mut().tasks_arrived += 1;
+
         let task = self.tasks.choose(&mut self.rng.borrow_mut()).unwrap();
         task.to_owned()
     }
@@ -84,8 +102,7 @@ impl WorkloadStruct {
     }
 
     pub fn push_backlog(&self, task: PodSpec ) {
-        if self.backlog.borrow().is_empty() { self.drain_backlog(false) }
-
+        self.drain_backlog(false);
         self.backlog.borrow_mut().push_back(task);
     }
 
@@ -104,9 +121,37 @@ impl WorkloadStruct {
     pub fn drain_backlog(&self, drain : bool ) {
         *self.drain_backlog.borrow_mut() = drain;
     }
+    pub fn is_drain( &self ) -> bool { *self.drain_backlog.borrow() }
 
     pub fn backlog_size(&self) -> usize {
         self.backlog.borrow().len()
+    }
+
+    pub fn deploy(&self) {
+        // Reset backlog queue for draining again
+        self.drain_backlog(true);
+
+        // Report and reset metrics
+        println!("{}", self.metrics.borrow());
+        println!("Tasks in backlog: {}", self.backlog_size());
+        *self.metrics.borrow_mut() = TaskMetrics::default();
+    }
+
+    pub fn update_metrics(&self, task: PodSpec, scheduled: bool ) {
+        let mut metrics = self.metrics.borrow_mut();
+
+        if !scheduled {
+            metrics.tasks_delayed += 1;
+
+        } else {
+            metrics.tasks_scheduled +=1;
+
+            metrics.total_cpu += task.cpu_milli;
+            metrics.total_mem += task.memory_mib;
+            metrics.total_gpu += task.gpu_milli;
+        }
+
+
     }
 }
 
@@ -138,6 +183,20 @@ impl std::fmt::Display for WorkloadStruct {
     }
 }
 
+impl std::fmt::Display for TaskMetrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Task Metrics:");
+
+        writeln!(f, "Tasks arrived: {} = {}(scheduled) + {}(delayed)",
+                 self.tasks_arrived, self.tasks_scheduled, self.tasks_delayed )?;
+
+        write!(f, "Total resources consumed: {: >4.1} cpu\t{: >4.1} GiB\t{: >4.1} GPU",
+               self.total_cpu as f64 / CPU_MILLI as f64,
+               self.total_mem as f64 / MEM_MIB as f64,
+               self.total_gpu as f64 / GPU_MILLI as f64 )
+
+    }
+}
 
 #[cfg(test)]
 mod tests {
