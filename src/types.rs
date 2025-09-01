@@ -6,10 +6,10 @@ use bitflags::bitflags;
 #[derive(serde::Deserialize)]
 #[derive(Eq, Hash, PartialEq)]
 #[derive(Default)]
-pub struct GpuSpec(u32);
+pub struct GpuSpec(u64);
 
 bitflags! {
-    impl GpuSpec: u32 {
+    impl GpuSpec: u64 {
         const A10 = 1;
         const G2 = 2;
         const G3 = 4;
@@ -24,11 +24,11 @@ bitflags! {
 pub type NODE = usize;
 pub type POD = usize;
 
-pub type CPU = u32;
-pub type MEM = u32;
+pub type CPU = u64;
+pub type MEM = u64;
 
 pub type NUM = usize;
-pub type GPU = u32;
+pub type GPU = u64;
 
 pub type MODEL = GpuSpec;
 

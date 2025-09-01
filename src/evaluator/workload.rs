@@ -17,7 +17,7 @@ struct WorkloadStruct {
 
     rng: RefCell<ThreadRng>,
 
-    drain_backlog: RefCell<bool>,
+    drain_backlog: RefCell<usize>,
     backlog: RefCell<VecDeque<PodSpec>>,
 
     num_tasks: POD,
@@ -45,7 +45,7 @@ struct TaskMetrics {
 impl WorkloadStruct {
     pub fn new( name: String, pod_csv : impl Read )  -> Self {
 
-        let drain_backlog = RefCell::new(false);
+        let drain_backlog = RefCell::new(0);
         let backlog = RefCell::new(VecDeque::new());
         let mut task_count = HashMap::new();
         let mut tasks = Vec::new();
@@ -102,26 +102,24 @@ impl WorkloadStruct {
     }
 
     pub fn push_backlog(&self, task: PodSpec ) {
-        self.drain_backlog(false);
         self.backlog.borrow_mut().push_back(task);
     }
 
     pub fn pop_backlog(&self) -> Option<PodSpec>{
-        if *self.drain_backlog.borrow() == false { return  None}
+        // All previous round tasks drained
+        if self.drain_backlog() == 0 { return  None }
 
         let task_opt = self.backlog.borrow_mut().pop_front();
-        if task_opt.is_none() {
-            // Completely emptied,
-            self.drain_backlog(false)
-        }
+        self.dec_backlog_drain();
 
         task_opt
     }
 
-    pub fn drain_backlog(&self, drain : bool ) {
-        *self.drain_backlog.borrow_mut() = drain;
-    }
-    pub fn is_drain( &self ) -> bool { *self.drain_backlog.borrow() }
+    pub fn inc_backlog_drain(&self, drain : bool ) { *self.drain_backlog.borrow_mut() += 1 }
+    pub fn dec_backlog_drain( &self ) {  *self.drain_backlog.borrow_mut() -= 1 }
+
+    pub fn drain_backlog(&self) -> usize { *self.drain_backlog.borrow() }
+
 
     pub fn backlog_size(&self) -> usize {
         self.backlog.borrow().len()
@@ -129,7 +127,7 @@ impl WorkloadStruct {
 
     pub fn deploy(&self) {
         // Reset backlog queue for draining again
-        self.drain_backlog(true);
+        *self.drain_backlog.borrow_mut() = self.backlog_size();
 
         // Report and reset metrics
         println!("{}", self.metrics.borrow());
@@ -254,7 +252,7 @@ mod tests {
         workload.push_backlog(c.clone());
 
         // Begin next round... Workload should serve these three first.
-        workload.drain_backlog(true);
+        workload.deploy();
 
         assert_eq!(workload.next_task(), a);
         assert_eq!(workload.next_task(), b);
