@@ -20,6 +20,7 @@ struct ClusterStruct {
     workload: Workload,
 
     num_nodes: NODE,
+    specs: Vec<NodeSpec>,
     nodes: Vec<NodeInfo>,
 
     // Key Optimization:
@@ -30,7 +31,7 @@ struct ClusterStruct {
     metrics: RefCell<NodeMetrics>,
 
 }
-pub type Cluster = Rc<ClusterStruct>;
+pub type Cluster = ClusterStruct;
 
 
 #[derive(Debug, Clone)]
@@ -47,7 +48,7 @@ struct NodeMetrics {
 
 impl ClusterStruct {
 
-    pub fn node_specs_from_reader( node_reader: impl  Read ) -> Vec<NodeSpec> {
+    fn read_node_specs( node_reader: impl  Read ) -> Vec<NodeSpec> {
         let mut specs = Vec::new();
 
         process_csv( node_reader, | i, mut record: NodeSpecStruct | {
@@ -63,15 +64,13 @@ impl ClusterStruct {
         specs
     }
 
+    fn reset_cluster(&mut self) {
+        let mut metrics = self.metrics.borrow_mut();
+        *metrics = NodeMetrics::default();
 
-    pub fn new( name: String, specs: &Vec<NodeSpec>, workload: Workload ) -> Self {
-        let num_nodes = specs.len();
-        let mut nodes = Vec::with_capacity(num_nodes);
+        let mut nodes = Vec::with_capacity(self.num_nodes);
 
-        let mut metrics = NodeMetrics::default();
-        let frag_delta = Default::default();
-
-        for spec in specs {
+        for spec in &self.specs {
 
             metrics.gpu_unallocated += spec.gpu_milli;
             metrics.gpu_total += spec.gpu_milli;
@@ -94,18 +93,35 @@ impl ClusterStruct {
             // TODO: calculate frag_delta
         }
 
+        self.nodes = nodes;
+    }
+
+
+    pub fn new( name: String,  node_csv : impl Read, workload: Workload ) -> Self {
+
+
+        let mut specs = Self::read_node_specs( node_csv );
+        let num_nodes = specs.len();
+
+        let mut nodes = Default::default();
+
+        let mut metrics = NodeMetrics::default();
+        let frag_delta = Default::default();
 
         let rng = RefCell::new(rand::rng());
         let metrics = RefCell::new(metrics);
 
-        Self {
+        let mut cluster = Self {
             name,
             rng,
             workload,
-            num_nodes, nodes,
+            specs, nodes, num_nodes,
             frag_delta,
             metrics,
-        }
+        };
+
+        cluster.reset_cluster();
+        cluster
     }
 
     // Basic filtering pass. Checks availability of resources, and model specs if provided
@@ -173,9 +189,11 @@ impl ClusterStruct {
         metrics.alloc_rate = 1f64 - (metrics.gpu_unallocated as f64 / metrics.gpu_total as f64);
     }
 
-    pub fn deploy(&self) {
-        println!("{}", self.metrics.borrow());
+    pub fn deploy(&mut self) -> NodeMetrics {
+        let metrics = self.metrics.borrow().clone();
 
+        self.reset_cluster();
+        metrics
     }
 }
 
@@ -216,7 +234,7 @@ mod tests {
 
 
     #[fixture]
-    fn workload() -> WorkloadStruct {
+    fn workload() -> Workload {
         let str =
         "name,cpu_milli,memory_mib,num_gpu,gpu_milli,gpu_spec,qos,pod_phase,creation_time,deletion_time,scheduled_time
         openb-pod-4447,8200,33792,1,1000,A10|T4,LS,Failed,11724207,11725419,11724207
@@ -231,30 +249,27 @@ mod tests {
         openb-pod-7432,8000,30517,1,470,,BE,Pending,12791960,12792838,
         openb-pod-0505,3152,5600,1,810,,BE,Failed,10212626,10212773,10212626";
 
-        WorkloadStruct::new(String::from("workload"), str.as_bytes())
+        Rc::new(WorkloadStruct::new(String::from("workload"), str.as_bytes()))
     }
 
     #[fixture]
-    fn specs() -> Vec<NodeSpec> {
-        let node_reader = File::open(&"clusterdata/node_data/all_nodes.csv").expect("node file not found");
-
-        ClusterStruct::node_specs_from_reader(node_reader)
+    fn node_csv() -> File {
+        File::open(&"clusterdata/node_data/all_nodes.csv").expect("node file not found")
     }
 
     #[rstest]
-    fn test_create( specs: Vec<NodeSpec>, workload: WorkloadStruct ) {
-        let workload = Rc::new(workload);
-        let mut cluster = ClusterStruct::new(String::from("cluster"), &specs, workload.clone());
+    fn test_create( node_csv: impl Read, workload: Workload ) {
+
+        let mut cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
 
         println!("Cluster: {}", cluster);
 
     }
 
     #[rstest]
-    fn test_filter( specs: Vec<NodeSpec>, workload: WorkloadStruct ) {
+    fn test_filter( node_csv: impl Read, workload: Workload ) {
 
-        let workload = Rc::new(workload);
-        let mut cluster = ClusterStruct::new(String::from("cluster"), &specs, workload.clone());
+        let mut cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
 
         for task in workload.tasks.iter() {
             let nodes: Vec<&NodeInfo> = cluster.filter_nodes( task.clone() ).collect();
@@ -264,10 +279,9 @@ mod tests {
     }
 
     #[rstest]
-    fn test_bind( specs: Vec<NodeSpec>, workload: WorkloadStruct ) {
+    fn test_bind( node_csv: impl Read, workload: Workload ) {
 
-        let workload = Rc::new(workload);
-        let mut cluster = ClusterStruct::new(String::from("cluster"), &specs, workload.clone());
+        let mut cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
 
         let task = workload.next_task();
         println!("Task:{}\n{}",task.id, task);

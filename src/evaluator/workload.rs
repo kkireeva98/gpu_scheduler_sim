@@ -1,4 +1,3 @@
-
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 use rand::distr::Uniform;
@@ -33,9 +32,9 @@ pub type Workload = Rc<WorkloadStruct>;
 #[derive(Default)]
 #[public]
 struct TaskMetrics {
-    tasks_arrived: u32,
-    tasks_scheduled: u32,
-    tasks_delayed: u32,
+    tasks_arrived: POD,
+    tasks_scheduled: POD,
+    tasks_delayed: POD,
 
     total_cpu: CPU,
     total_mem: MEM,
@@ -125,14 +124,14 @@ impl WorkloadStruct {
         self.backlog.borrow().len()
     }
 
-    pub fn deploy(&self) {
+    pub fn deploy(&self) -> TaskMetrics {
         // Reset backlog queue for draining again
         *self.drain_backlog.borrow_mut() = self.backlog_size();
 
-        // Report and reset metrics
-        println!("{}", self.metrics.borrow());
-        println!("Tasks in backlog: {}", self.backlog_size());
+        let metrics = self.metrics.borrow().clone();
         *self.metrics.borrow_mut() = TaskMetrics::default();
+
+        metrics
     }
 
     pub fn update_metrics(&self, task: PodSpec, scheduled: bool ) {

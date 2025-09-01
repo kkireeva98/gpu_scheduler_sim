@@ -1,5 +1,6 @@
 use std::io::Read;
 use std::rc::Rc;
+use num_traits::Num;
 use rand::Rng;
 use crate::csv_reader::process_csv;
 use crate::types::*;
@@ -31,11 +32,11 @@ struct Evaluator
     // Tasks to be scheduled
     workload: Workload,
 
-    specs: Vec<NodeSpec>,
+    // Compute Nodes
     cluster: Cluster,
 }
 
-const NUM_LOOPS: u32 = 100;
+const NUM_LOOPS: usize = 10;
 
 impl Evaluator {
 
@@ -48,14 +49,12 @@ impl Evaluator {
         let workload = WorkloadStruct::new(String::from("workload"), workload_reader);
         let workload = Rc::new(workload);
 
-        let specs = ClusterStruct::node_specs_from_reader(cluster_reader);
-        let cluster= ClusterStruct::new(String::from("cluster"), &specs, workload.clone());
-        let cluster = Rc::new(cluster);
+        let cluster= ClusterStruct::new(String::from("cluster"), cluster_reader, workload.clone());
 
-        Self { scheduler, decider, workload, specs, cluster }
+        Self { scheduler, decider, workload, cluster }
     }
 
-    pub fn schedule_and_deploy(&mut self) {
+    pub fn schedule_and_deploy(&mut self) -> ( TaskMetrics, NodeMetrics ){
 
         let decider_func = self.decider;
         let scheduler_func = self.scheduler;
@@ -84,26 +83,40 @@ impl Evaluator {
             if decider_func(self) { break; }
         }
 
-        // Tasks "deployed"
-        self.cluster.deploy();
-
-        // Hack to reset the cluster to a new one with fresh data
-        let cluster= ClusterStruct::new(String::from("cluster"), &self.specs, self.workload.clone());
-        let cluster = Rc::new(cluster);
-
-        self.cluster = cluster;
-
-        self.workload.deploy();
+        // Tasks "deployed". Return metrics
+        ( self.workload.deploy(), self.cluster.deploy() )
     }
 
     pub fn evaluate(&mut self) {
 
+        let mut tasks_scheduled = Default::default();
+        let mut gpu_unallocated = Default::default();
+
         // Average metrics over a number of loops, to reduce statistical error
         for batch_num in 0..NUM_LOOPS {
-            self.schedule_and_deploy();
-            println!()
+            let (task_m, node_m) = self.schedule_and_deploy();
+
+            tasks_scheduled = update_average(tasks_scheduled, task_m.tasks_scheduled as f64, batch_num ) ;
+            gpu_unallocated = update_average(gpu_unallocated, node_m.gpu_unallocated as f64, batch_num);
+
+            println!("Batch {}: tasks scheduled: {}, allocation rate: {:.2}", batch_num + 1, task_m.tasks_scheduled, node_m.alloc_rate * 100.0);
         }
 
+        let gpu_total = self.cluster.metrics.borrow().gpu_total;
+        let alloc_ratio = 1.0 - gpu_unallocated / gpu_total as f64;
+
+
+        println!("Average tasks scheduled: {:.0}", tasks_scheduled );
+        println!("Average allocation rate : {:.2}", alloc_ratio * 100.0)
     }
 
+}
+
+fn update_average(prev_avg: f64, x: f64, n: usize ) -> f64 {
+    if n == 1  { return x; }
+
+    let frac: f64 = n as f64 / (n + 1) as f64;
+    let contrib = x / (n + 1) as f64;
+
+    frac * prev_avg + contrib
 }

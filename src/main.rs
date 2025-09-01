@@ -20,7 +20,7 @@ fn main() {
     let pod_csv = File::open(&"clusterdata/pod_data/default.csv").expect("pod file not found");
 
     let mut eval: Evaluator = Evaluator::new(
-        random_scheduler,
+        dot_product_scheduler,
         max_tasks_arrived,
         pod_csv,
         node_csv,
