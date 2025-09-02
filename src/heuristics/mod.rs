@@ -1,3 +1,4 @@
+use std::mem::take;
 use rand::distr::Distribution;
 use rand::{random, Rng};
 use rand::distr::Uniform;
@@ -28,26 +29,23 @@ pub fn random_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<(NODE,
     let cluster = evaluator.cluster.clone();
 
     let nodes = cluster.filter_nodes( task.clone() );
-    let selected_node = nodes.choose( &mut cluster.rng.borrow_mut() );
+    let node_opt = nodes.choose( &mut cluster.rng.borrow_mut() );
 
     // We have no nodes left to pick from!
-    if selected_node.is_none() {
+    if node_opt.is_none() {
         return None;
     }
 
-    let selected_node = selected_node.unwrap().borrow();
-    let id = selected_node.spec.id;
+    let (id, selected_node)  = node_opt.unwrap();
 
-    let opt_ind: Option<NUM> = if task.num_gpu != 1 { None } else {
+    let gpu_opt: Option<NUM> = if !task.single_gpu() { None } else {
 
-        selected_node.gpu_rem.iter()
-            .enumerate()
-            .filter(|&(i, &gpu)| { task.gpu_milli <= gpu })
+        cluster.filter_gpus(selected_node, task.gpu_milli )
             .map(|(i, _)| i)
             .choose(&mut cluster.rng.borrow_mut())
     };
 
-    Some((id, opt_ind))
+    Some((id, gpu_opt))
 }
 
 const MODEL_PENALTY: SCORE = 10000;
@@ -57,7 +55,7 @@ pub fn dot_product_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<(
     let cluster = evaluator.cluster.clone();
     let nodes = cluster.filter_nodes( task.clone() );
 
-    let score = | node_ref: &NodeInfo | -> (NodeInfo, SCORE) {
+    let score = | (i, node_ref): (usize, &NodeInfo ) | -> (NodeInfo, SCORE) {
         let node = node_ref.borrow();
         let mut score : SCORE = SCORE::default();
 
@@ -79,18 +77,16 @@ pub fn dot_product_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<(
 
     if node_opt.is_none() { return None; }
 
-    let (selected_node, _ )  = node_opt.unwrap();
-    let selected_node = selected_node.borrow();
 
-    let id = selected_node.spec.id;
+    let (selected_node, _)  = node_opt.unwrap();
+    let id = selected_node.borrow().spec.id;
 
-    let opt_ind: Option<NUM> = if task.num_gpu != 1 { None } else {
-        selected_node.gpu_rem.iter()
-            .enumerate()
-            .filter(|&(i, &gpu)| { task.gpu_milli <= gpu })
-            .max_by_key(|(i, gpu)| **gpu )
+    let gpu_opt: Option<NUM> = if !task.single_gpu() { None } else {
+
+        cluster.filter_gpus(&selected_node, task.gpu_milli )
+            .max_by_key(|(i, gpu)| *gpu )
             .map(|(i, _)| i)
     };
 
-    Some((id, opt_ind))
+    Some((id, gpu_opt))
 }

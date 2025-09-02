@@ -53,7 +53,7 @@ impl WorkloadStruct {
 
             // Pre-process PodSpec so that gpu_milli can be used directly,
             // Assuming GPUs are always allocated as one fraction or an integer number.
-            if record.num_gpu != 1 {
+            if !record.single_gpu() {
                 record.gpu_milli = record.num_gpu as GPU * GPU_MILLI;
             }
 

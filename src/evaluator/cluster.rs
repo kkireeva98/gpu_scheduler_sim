@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::io::Read;
 use std::rc::Rc;
@@ -125,8 +125,10 @@ impl ClusterStruct {
     }
 
     // Basic filtering pass. Checks availability of resources, and model specs if provided
-    pub fn filter_nodes( &self, task: PodSpec ) -> impl Iterator<Item=&NodeInfo>  {
-        self.nodes.iter().filter( move | node| {
+    pub fn filter_nodes( &self, task: PodSpec ) -> impl Iterator<Item=(NODE, &NodeInfo)>  {
+        self.nodes.iter()
+            .enumerate()
+            .filter( move | (i, node) | {
             let node = node.borrow();
             let scalar_resources: bool =
                 task.cpu_milli <= node.cpu_rem &&
@@ -143,14 +145,25 @@ impl ClusterStruct {
             scalar_resources && gpu_resources && model_match
         })
     }
+    
+    pub fn filter_gpus(&self, node: &NodeInfo, task_gpu: GPU ) -> impl Iterator<Item=(NUM, GPU)>  {
+        // Clone the GPU vector to avoid returning references tied to a temporary RefCell borrow.
+        // This preserves the iterator API while sidestepping lifetime issues.
+        node.borrow().gpu_rem
+            .clone()
+            .into_iter()
+            .enumerate()
+            .filter(move |(_i, gpu)| task_gpu <= *gpu)
+    }
 
     pub fn bind_task(&self, task: PodSpec, n: NODE, opt_g: Option<NUM> ) {
-        let mut node = self.nodes[n].borrow_mut();
+        let node_ref = &self.nodes[n];
+        let mut node =  node_ref.borrow_mut();
 
         node.cpu_rem -= task.cpu_milli;
         node.mem_rem -= task.memory_mib;
 
-        if task.num_gpu == 1 {
+        if task.single_gpu() {
             // Consume a portion of gpu g
             let g = opt_g.unwrap();
             node.gpu_rem[g] -= task.gpu_milli;
@@ -272,9 +285,11 @@ mod tests {
         let mut cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
 
         for task in workload.tasks.iter() {
-            let nodes: Vec<&NodeInfo> = cluster.filter_nodes( task.clone() ).collect();
-            println!("Nodes available: {} \t--- task {}", nodes.len(), task);
-            assert_ne!(nodes.len(), 0);
+            let nodes = cluster.filter_nodes( task.clone() );
+            let count = nodes.count();
+
+            println!("Nodes available: {} \t--- task {}", count, task);
+            assert_ne!(count, 0);
         }
     }
 
@@ -287,20 +302,14 @@ mod tests {
         println!("Task:{}\n{}",task.id, task);
 
         let nodes = cluster.filter_nodes( task.clone() );
-        let id = {
-            let selected_node = nodes.choose( &mut cluster.rng.borrow_mut() ).unwrap().borrow();
-            selected_node.spec.id
-        };
+        let (id, _) = nodes.choose( &mut cluster.rng.borrow_mut() ).unwrap();
 
         {
             let node = cluster.nodes[id].borrow();
             println!("Before bind:{}\n{}", node.spec.id, node);
         }
 
-        let opt_ind = match task.num_gpu {
-            1 => Some(0),
-            _ => None,
-        };
+        let opt_ind = if task.single_gpu() { Some(0) } else {None};
 
         cluster.bind_task( task.clone(), id, opt_ind);
 

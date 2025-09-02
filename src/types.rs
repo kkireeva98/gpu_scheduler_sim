@@ -123,9 +123,10 @@ impl std::fmt::Display for PodSpecStruct {
         write!(f, "{: >4.1} cpu\t{: >4.1} GiB\t{: >4.1} GPU\t{: <4}",
                self.cpu_milli as f64 / CPU_MILLI as f64,
                self.memory_mib as f64 / MEM_MIB as f64,
-               match self.num_gpu {
-                   1 => self.gpu_milli as f64 / GPU_MILLI as f64,
-                   n => n as f64,
+               if self.single_gpu() {
+                   self.gpu_milli as f64 / GPU_MILLI as f64
+               } else { 
+                   self.num_gpu as f64
                },
                match &self.model {
                    GpuSpec(0) => "_",
@@ -160,4 +161,8 @@ impl std::fmt::Display for NodeInfoStruct {
 
         self.gpu_rem.iter().try_for_each(write_gpu)
     }
+}
+
+impl PodSpecStruct {
+    pub fn single_gpu(&self) -> bool { self.num_gpu == 1 }
 }
