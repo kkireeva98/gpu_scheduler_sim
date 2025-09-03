@@ -39,8 +39,8 @@ pub fn random_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<Schedu
     let (id, selected_node)  = node_opt.unwrap();
 
     let gpus = cluster
-        .filter_gpus( selected_node, task.gpu_milli )
-        .map(|(i, _)| i)
+        .filter_gpus( selected_node, task.clone() )
+        .map(|(i, gpu)| gpu)
         .choose_multiple(&mut cluster.rng.borrow_mut(), task.num_gpu );
 
     Some((selected_node.clone(), gpus))
@@ -78,16 +78,16 @@ pub fn dot_product_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<S
 
     let (selected_node, _)  = node_opt.unwrap();
 
-    let gpus = cluster.filter_gpus(&selected_node, task.gpu_milli );
+    let gpus = cluster.filter_gpus(&selected_node, task.clone() );
     let gpus = if task.single_gpu() {
             let g = gpus
-            .max_by_key(|(i, gpu)| *gpu )
-            .map(|(i, _)| i)
+            .max_by_key(|(i, gpu)| gpu.borrow_mut().gpu_milli )
+            .map(|(i, gpu )| gpu )
             .unwrap();
 
             vec![g]
     } else {
-        gpus.map(|(i, _)| i).take(task.num_gpu).collect()
+        gpus.map(|(i, gpu )| gpu ).take(task.num_gpu).collect()
     };
 
     Some((selected_node.clone(), gpus))

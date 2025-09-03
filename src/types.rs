@@ -88,7 +88,7 @@ struct NodeInfoStruct {
     cpu_rem: CPU,
     mem_rem: MEM,
 
-    gpu_rem: Vec<GPU>,
+    gpu_rem: Vec<GpuInfo>,
     gpu_full: NUM,
     gpu_part: GPU,
 
@@ -97,6 +97,13 @@ struct NodeInfoStruct {
 }
 pub type NodeInfo = Rc<RefCell<NodeInfoStruct>>;
 
+#[derive(Debug, Clone)]
+#[public]
+struct GpuInfoStruct {
+    id: NUM,
+    gpu_milli: GPU,
+}
+pub type GpuInfo = Rc<RefCell<GpuInfoStruct>>;
 
 impl std::fmt::Display for GpuSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -146,17 +153,14 @@ impl std::fmt::Display for NodeInfoStruct {
              self.gpu_full, self.gpu_part as f64 / GPU_MILLI as f64,
         )?;
 
-        let gpu_str = | gpu: GPU | -> String  {
-            let frac = (gpu / (GPU_MILLI / 10)) as usize;
+        let write_gpu = | gpu: &GpuInfo | -> std::fmt::Result {
+            let frac = (gpu.borrow().gpu_milli / (GPU_MILLI / 10)) as usize;
 
             let free = vec!['▒'; frac];
             let used = vec!['▇'; 10 - frac];
 
-            [used, free ].concat().iter().collect()
-        };
-
-        let write_gpu = | &gpu | -> std::fmt::Result {
-            write!(f, "[\t{}\t]", gpu_str(gpu) )
+            let gpu_str: String = [used, free ].concat().iter().collect();
+            write!(f, "[\t{}\t]", gpu_str )
         };
 
         self.gpu_rem.iter().try_for_each(write_gpu)

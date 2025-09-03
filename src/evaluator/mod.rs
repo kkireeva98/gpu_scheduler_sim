@@ -11,7 +11,7 @@ pub mod cluster;
 use workload::*;
 use cluster::*;
 
-pub type SchedulingPick = (NodeInfo, Vec<NUM>);
+pub type SchedulingPick = (NodeInfo, Vec<GpuInfo>);
 
 // Decides which node to bind the next task to
 pub type Scheduler = fn( evaluator: &Evaluator, task: PodSpec ) -> Option<SchedulingPick>;
@@ -37,7 +37,7 @@ struct Evaluator
     cluster: Cluster,
 }
 
-const NUM_LOOPS: usize = 100;
+const NUM_LOOPS: usize = 10;
 
 impl Evaluator {
 

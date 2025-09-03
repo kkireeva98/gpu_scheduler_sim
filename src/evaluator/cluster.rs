@@ -75,11 +75,11 @@ impl ClusterStruct {
             metrics.gpu_unallocated += spec.gpu_milli;
             metrics.gpu_total += spec.gpu_milli;
 
-            let node = NodeInfoStruct {
+            let mut node = NodeInfoStruct {
                 spec: spec.clone(),
                 cpu_rem: spec.cpu_milli,
                 mem_rem: spec.memory_mib,
-                gpu_rem: vec![GPU_MILLI; spec.num_gpu],
+                gpu_rem: Vec::with_capacity(spec.num_gpu),
 
                 gpu_full: spec.num_gpu,
                 gpu_part: 0,
@@ -87,6 +87,10 @@ impl ClusterStruct {
                 gpu_unallocated: spec.gpu_milli,
                 gpu_frag: 0,
             };
+
+            node.gpu_rem = (0..spec.num_gpu).map(|id| {
+                Rc::new(RefCell::new(GpuInfoStruct { id, gpu_milli: GPU_MILLI } ))
+            }).collect();
 
             nodes.push( Rc::new(RefCell::new(node)) );
 
@@ -98,7 +102,6 @@ impl ClusterStruct {
 
 
     pub fn new( name: String,  node_csv : impl Read, workload: Workload ) -> Self {
-
 
         let mut specs = Self::read_node_specs( node_csv );
         let num_nodes = specs.len();
@@ -126,6 +129,7 @@ impl ClusterStruct {
 
     // Basic filtering pass. Checks availability of resources, and model specs if provided
     pub fn filter_nodes( &self, task: PodSpec ) -> impl Iterator<Item=(NODE, &NodeInfo)>  {
+
         self.nodes.iter()
             .enumerate()
             .filter( move | (i, node) | {
@@ -146,14 +150,15 @@ impl ClusterStruct {
         })
     }
     
-    pub fn filter_gpus(&self, node: &NodeInfo, task_gpu: GPU ) -> impl Iterator<Item=(NUM, GPU)>  {
+    pub fn filter_gpus(&self, node: &NodeInfo, task: PodSpec ) -> impl Iterator<Item=(NUM, GpuInfo)>  {
+
         // Clone the GPU vector to avoid returning references tied to a temporary RefCell borrow.
         // This preserves the iterator API while sidestepping lifetime issues.
         node.borrow().gpu_rem
             .clone()
             .into_iter()
             .enumerate()
-            .filter(move |(_i, gpu)| task_gpu <= *gpu)
+            .filter(move |(_i, gpu)| task.gpu_milli <= gpu.borrow().gpu_milli )
     }
 
     pub fn bind_task(&self, task: PodSpec, (node_ref, gpu_vec): SchedulingPick ) {
@@ -163,23 +168,23 @@ impl ClusterStruct {
         node.mem_rem -= task.memory_mib;
 
         if task.single_gpu() {
-            let g = gpu_vec[0];
-            node.gpu_rem[g] -= task.gpu_milli;
+            gpu_vec[0].borrow_mut().gpu_milli -= task.gpu_milli;
 
         } else {
-            gpu_vec.into_iter().for_each(|g | {
-                node.gpu_rem[g] = 0;
+            gpu_vec.into_iter().for_each(|gpu | {
+                gpu.borrow_mut().gpu_milli = 0;
             })
         }
 
         node.gpu_full = node.gpu_rem.iter()
-            .filter(|&&gpu| { gpu == GPU_MILLI })
+            .filter(|gpu| { gpu.borrow().gpu_milli == GPU_MILLI })
             .count();
 
-        node.gpu_part  = *node.gpu_rem.iter()
-            .filter(|&&gpu| { gpu < GPU_MILLI })
+        node.gpu_part = node.gpu_rem.iter()
+            .filter(|gpu| { gpu.borrow().gpu_milli < GPU_MILLI })
+            .map( |gpu| gpu.borrow().gpu_milli )
             .max()
-            .unwrap_or(&0);
+            .unwrap_or(0);
 
         node.gpu_unallocated -= task.gpu_milli;
 
@@ -294,13 +299,13 @@ mod tests {
 
         let nodes = cluster.filter_nodes( task.clone() );
         let (id, node ) = nodes.choose( &mut cluster.rng.borrow_mut() ).unwrap();
-        
+
         let gpus = cluster
-            .filter_gpus( node, task.gpu_milli )
+            .filter_gpus( node, task.clone() )
             .take(task.num_gpu)
-            .map(|(i, _)| i)
+            .map(|(i, gpu)| gpu )
             .collect();
-        
+
         let pick = (node.clone(), gpus );
 
         cluster.bind_task( task.clone(), pick );
