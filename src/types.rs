@@ -1,6 +1,31 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use bitflags::bitflags;
+use crate::evaluator::Evaluator;
+
+pub type SCORE = u128;
+
+pub type NODE = usize;
+pub type POD = usize;
+
+pub type CPU = u64;
+pub type MEM = u64;
+
+pub type NUM = usize;
+pub type GPU = u64;
+
+pub type MODEL = GpuSpec;
+
+pub const GPU_MILLI : GPU = 1000;
+pub const MEM_MIB : MEM = 1024;
+pub const CPU_MILLI : CPU = 1000;
+
+// Scheduler decides which node and gpu(s) to assing a task to
+pub type SchedulingPick = (NodeInfo, Vec<GpuInfo>);
+pub type ScheduleFunc = fn(evaluator: &Evaluator, task: PodSpec ) -> Option<SchedulingPick>;
+
+// Decides when to deploy workload instead of waiting for more tasks
+pub type DeployFunc = fn(evaluator: &Evaluator ) -> bool;
 
 #[derive(Debug, Clone)]
 #[derive(serde::Deserialize)]
@@ -19,22 +44,6 @@ bitflags! {
         const V100M32 = 64;
     }
 }
-
-
-pub type NODE = usize;
-pub type POD = usize;
-
-pub type CPU = u64;
-pub type MEM = u64;
-
-pub type NUM = usize;
-pub type GPU = u64;
-
-pub type MODEL = GpuSpec;
-
-pub const GPU_MILLI : GPU = 1000;
-pub const MEM_MIB : MEM = 1024;
-pub const CPU_MILLI : CPU = 1000;
 
 #[derive(Debug, Clone)]
 #[derive(serde::Deserialize)]
@@ -57,6 +66,10 @@ struct PodSpecStruct {
 }
 pub type PodSpec = Rc<PodSpecStruct>;
 pub type PodSpecKey = PodSpecStruct;
+
+impl PodSpecStruct {
+    pub fn single_gpu(&self) -> bool { self.num_gpu == 1 }
+}
 
 
 #[derive(Debug, Clone)]
@@ -104,6 +117,7 @@ struct GpuInfoStruct {
     gpu_milli: GPU,
 }
 pub type GpuInfo = Rc<RefCell<GpuInfoStruct>>;
+
 
 impl std::fmt::Display for GpuSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -165,8 +179,4 @@ impl std::fmt::Display for NodeInfoStruct {
 
         self.gpu_rem.iter().try_for_each(write_gpu)
     }
-}
-
-impl PodSpecStruct {
-    pub fn single_gpu(&self) -> bool { self.num_gpu == 1 }
 }

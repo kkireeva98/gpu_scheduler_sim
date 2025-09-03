@@ -1,10 +1,9 @@
-use std::collections::{HashMap, VecDeque};
-use std::io::Read;
-use rand::distr::Uniform;
+use super::*;
 use rand::prelude::*;
 use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
+use std::io::Read;
 use std::rc::Rc;
-use super::*;
 
 type TaskCount = HashMap<PodSpecKey, usize>;
 
@@ -95,6 +94,7 @@ impl WorkloadStruct {
         task.to_owned()
     }
 
+    #[allow(unused)]
     pub fn task_count( &self, task : &PodSpec ) -> usize {
         let &count = self.task_count.get(task).unwrap_or(&0);
         count
@@ -114,7 +114,8 @@ impl WorkloadStruct {
         task_opt
     }
 
-    pub fn inc_backlog_drain(&self, drain : bool ) { *self.drain_backlog.borrow_mut() += 1 }
+    #[allow(unused)]
+    pub fn inc_backlog_drain(&self ) { *self.drain_backlog.borrow_mut() += 1 }
     pub fn dec_backlog_drain( &self ) {  *self.drain_backlog.borrow_mut() -= 1 }
 
     pub fn drain_backlog(&self) -> usize { *self.drain_backlog.borrow() }
@@ -155,7 +156,7 @@ impl WorkloadStruct {
 impl std::fmt::Display for WorkloadStruct {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f);
+        writeln!(f)?;
         writeln!(f, "Workload ({})", self.name)?;
 
 
@@ -166,7 +167,7 @@ impl std::fmt::Display for WorkloadStruct {
 
 
         let mut task_count: Vec<(&PodSpecKey, &usize)> = self.task_count.iter().collect();
-        task_count.sort_by_key(|(m, count) | {**count});
+        task_count.sort_by_key(|(_, count) | {**count});
 
 
         writeln!(f, "Task Counts -- {} total, {} unique", self.num_tasks, task_count.len())?;
@@ -174,7 +175,7 @@ impl std::fmt::Display for WorkloadStruct {
             writeln!(f, "({})\t{}", count, task)
         } )?;
 
-        writeln!(f, ". . .");
+        writeln!(f, ". . .")?;
 
         Ok(())
     }
@@ -182,7 +183,7 @@ impl std::fmt::Display for WorkloadStruct {
 
 impl std::fmt::Display for TaskMetrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Task Metrics:");
+        writeln!(f, "Task Metrics:")?;
 
         writeln!(f, "Tasks arrived: {} = {}(scheduled) + {}(delayed)",
                  self.tasks_arrived, self.tasks_scheduled, self.tasks_delayed )?;
@@ -197,10 +198,10 @@ impl std::fmt::Display for TaskMetrics {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
+    use super::*;
     use rstest::{fixture, rstest};
     use rstest_reuse::{self, *};
-    use super::*;
+    use std::fs::File;
 
     #[fixture]
     #[once]
@@ -233,7 +234,7 @@ mod tests {
         let file = File::open(&file_path)
             .expect( format!("{} file not found", file_path ).as_str() );
 
-        let mut workload = WorkloadStruct::new(file_path, file);
+        let workload = WorkloadStruct::new(file_path, file);
 
         // Fetch 3 tasks
         let (a, b, c) =

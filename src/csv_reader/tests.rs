@@ -1,11 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::fs::File;
     use rstest::rstest;
 
     use crate::csv_reader::*;
-    use crate::types::*;
 
     #[rstest]
     #[case("sn,cpu_milli,memory_mib,gpu,model

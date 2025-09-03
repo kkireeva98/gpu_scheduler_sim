@@ -1,4 +1,3 @@
-#![allow(unused)]
 #[macro_use]
 extern crate public;
 
@@ -9,10 +8,9 @@ mod heuristics;
 
 use std::fs::File;
 use heuristics::*;
-use types::*;
 
 use crate::evaluator::*;
-use crate::evaluator::workload::Workload;
+use crate::heuristics::simple_schedulers::*;
 
 fn main() {
 
@@ -20,7 +18,7 @@ fn main() {
     let pod_csv = File::open(&"clusterdata/pod_data/default.csv").expect("pod file not found");
 
     let mut eval: Evaluator = Evaluator::new(
-        dot_product_scheduler,
+        best_fit_scheduler,
         max_tasks_arrived,
         pod_csv,
         node_csv,

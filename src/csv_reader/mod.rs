@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Formatter};
 use serde::{de, Deserialize, Deserializer};
 
 use crate::types::*;

@@ -1,7 +1,5 @@
 use std::io::Read;
 use std::rc::Rc;
-use num_traits::Num;
-use rand::Rng;
 use crate::csv_reader::process_csv;
 use crate::types::*;
 
@@ -11,14 +9,6 @@ pub mod cluster;
 use workload::*;
 use cluster::*;
 
-pub type SchedulingPick = (NodeInfo, Vec<GpuInfo>);
-
-// Decides which node to bind the next task to
-pub type Scheduler = fn( evaluator: &Evaluator, task: PodSpec ) -> Option<SchedulingPick>;
-
-// Decides when to deploy workload instead of waiting for more tasks
-pub type Decider = fn( evaluator: &Evaluator ) -> bool;
-
 
 
 #[public]
@@ -27,8 +17,8 @@ struct Evaluator
     // Dependency injection functions that alter Evaluator behavior
     // Can make non-mutable queries on Cluster and Workload objects
     // Evaluator applies decision and evaluates performance metrics
-    scheduler: Scheduler,
-    decider: Decider,
+    scheduler: ScheduleFunc,
+    decider: DeployFunc,
 
     // Tasks to be scheduled
     workload: Workload,
@@ -37,13 +27,13 @@ struct Evaluator
     cluster: Cluster,
 }
 
-const NUM_LOOPS: usize = 10;
+const NUM_LOOPS: usize = 100;
 
 impl Evaluator {
 
     pub fn new(
-        scheduler: Scheduler,
-        decider: Decider,
+        scheduler: ScheduleFunc,
+        decider: DeployFunc,
         workload_reader: impl Read,
         cluster_reader: impl Read,
     ) -> Self {

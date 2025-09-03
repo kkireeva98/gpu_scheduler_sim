@@ -1,12 +1,10 @@
-use std::cell::{Ref, RefCell};
+use crate::evaluator::workload::*;
+use crate::evaluator::*;
+use rand::prelude::ThreadRng;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Read;
 use std::rc::Rc;
-use rand::distr::Uniform;
-use rand::prelude::ThreadRng;
-use crate::types::*;
-use crate::evaluator::*;
-use crate::evaluator::workload::*;
 
 type FragDelta = HashMap<PodSpecKey, Vec<GPU>>;
 
@@ -103,12 +101,12 @@ impl ClusterStruct {
 
     pub fn new( name: String,  node_csv : impl Read, workload: Workload ) -> Self {
 
-        let mut specs = Self::read_node_specs( node_csv );
+        let specs = Self::read_node_specs( node_csv );
         let num_nodes = specs.len();
 
-        let mut nodes = Default::default();
+        let nodes = Default::default();
 
-        let mut metrics = NodeMetrics::default();
+        let metrics = NodeMetrics::default();
         let frag_delta = Default::default();
 
         let rng = RefCell::new(rand::rng());
@@ -128,11 +126,11 @@ impl ClusterStruct {
     }
 
     // Basic filtering pass. Checks availability of resources, and model specs if provided
-    pub fn filter_nodes( &self, task: PodSpec ) -> impl Iterator<Item=(NODE, &NodeInfo)>  {
+    pub fn filter_nodes( &self, task: PodSpec ) -> impl Iterator<Item=NodeInfo>  {
 
         self.nodes.iter()
-            .enumerate()
-            .filter( move | (i, node) | {
+            .cloned()
+            .filter( move | node | {
             let node = node.borrow();
             let scalar_resources: bool =
                 task.cpu_milli <= node.cpu_rem &&
@@ -148,17 +146,6 @@ impl ClusterStruct {
 
             scalar_resources && gpu_resources && model_match
         })
-    }
-    
-    pub fn filter_gpus(&self, node: &NodeInfo, task: PodSpec ) -> impl Iterator<Item=(NUM, GpuInfo)>  {
-
-        // Clone the GPU vector to avoid returning references tied to a temporary RefCell borrow.
-        // This preserves the iterator API while sidestepping lifetime issues.
-        node.borrow().gpu_rem
-            .clone()
-            .into_iter()
-            .enumerate()
-            .filter(move |(_i, gpu)| task.gpu_milli <= gpu.borrow().gpu_milli )
     }
 
     pub fn bind_task(&self, task: PodSpec, (node_ref, gpu_vec): SchedulingPick ) {
@@ -206,10 +193,22 @@ impl ClusterStruct {
     }
 }
 
+impl NodeInfoStruct {
+    pub fn filter_gpus(&self, task: PodSpec ) -> impl Iterator<Item=GpuInfo>  {
+
+        // Clone the GPU vector to avoid returning references tied to a temporary RefCell borrow.
+        // This preserves the iterator API while sidestepping lifetime issues.
+        self.gpu_rem
+            .iter()
+            .cloned()
+            .filter(move |gpu| task.gpu_milli <= gpu.borrow().gpu_milli )
+    }
+}
+
 impl std::fmt::Display for ClusterStruct {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f);
+        writeln!(f)?;
         writeln!(f, "Cluster ({})", self.name)?;
 
         let write_node = | node: &NodeInfo | -> std::fmt::Result {
@@ -223,7 +222,7 @@ impl std::fmt::Display for ClusterStruct {
 impl std::fmt::Display for NodeMetrics {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Node Metrics:");
+        writeln!(f, "Node Metrics:")?;
 
         writeln!(f, "Total GPU: {:.1}", self.gpu_total as f64 / GPU_MILLI as f64 )?;
 
@@ -235,11 +234,10 @@ impl std::fmt::Display for NodeMetrics {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
-    use rand::prelude::{IndexedRandom, IteratorRandom};
-    use rstest::{fixture, rstest};
-    use rstest_reuse::{self, *};
     use super::*;
+    use rand::prelude::IteratorRandom;
+    use rstest::{fixture, rstest};
+    use std::fs::File;
 
 
     #[fixture]
@@ -269,7 +267,7 @@ mod tests {
     #[rstest]
     fn test_create( node_csv: impl Read, workload: Workload ) {
 
-        let mut cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
+        let cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
 
         println!("Cluster: {}", cluster);
 
@@ -278,7 +276,7 @@ mod tests {
     #[rstest]
     fn test_filter( node_csv: impl Read, workload: Workload ) {
 
-        let mut cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
+        let cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
 
         for task in workload.tasks.iter() {
             let nodes = cluster.filter_nodes( task.clone() );
@@ -292,18 +290,17 @@ mod tests {
     #[rstest]
     fn test_bind( node_csv: impl Read, workload: Workload ) {
 
-        let mut cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
+        let cluster = ClusterStruct::new(String::from("cluster"), node_csv, workload.clone());
 
         let task = workload.next_task();
         println!("Task:{}\n{}",task.id, task);
 
         let nodes = cluster.filter_nodes( task.clone() );
-        let (id, node ) = nodes.choose( &mut cluster.rng.borrow_mut() ).unwrap();
+        let node= nodes.choose( &mut cluster.rng.borrow_mut() ).unwrap();
 
-        let gpus = cluster
-            .filter_gpus( node, task.clone() )
+        let gpus = node.borrow()
+            .filter_gpus( task.clone() )
             .take(task.num_gpu)
-            .map(|(i, gpu)| gpu )
             .collect();
 
         let pick = (node.clone(), gpus );
