@@ -25,7 +25,7 @@ pub fn max_tasks_arrived( evaluator: &Evaluator ) -> bool {
 
 // Simple Schedulers
 
-pub fn random_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<(NODE, Option<NUM>)> {
+pub fn random_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<SchedulingPick> {
     let cluster = evaluator.cluster.clone();
 
     let nodes = cluster.filter_nodes( task.clone() );
@@ -38,18 +38,16 @@ pub fn random_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<(NODE,
 
     let (id, selected_node)  = node_opt.unwrap();
 
-    let gpu_opt: Option<NUM> = if !task.single_gpu() { None } else {
+    let gpus = cluster
+        .filter_gpus( selected_node, task.gpu_milli )
+        .map(|(i, _)| i)
+        .choose_multiple(&mut cluster.rng.borrow_mut(), task.num_gpu );
 
-        cluster.filter_gpus(selected_node, task.gpu_milli )
-            .map(|(i, _)| i)
-            .choose(&mut cluster.rng.borrow_mut())
-    };
-
-    Some((id, gpu_opt))
+    Some((selected_node.clone(), gpus))
 }
 
 const MODEL_PENALTY: SCORE = 10000;
-pub fn dot_product_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<(NODE, Option<NUM>)> {
+pub fn dot_product_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<SchedulingPick> {
     let task = task.to_owned();
 
     let cluster = evaluator.cluster.clone();
@@ -75,18 +73,22 @@ pub fn dot_product_scheduler( evaluator: &Evaluator, task: PodSpec ) -> Option<(
         .map( score )
         .max_by_key(|(node, score)| { *score });
 
+    // We have no nodes left to pick from!
     if node_opt.is_none() { return None; }
 
-
     let (selected_node, _)  = node_opt.unwrap();
-    let id = selected_node.borrow().spec.id;
 
-    let gpu_opt: Option<NUM> = if !task.single_gpu() { None } else {
-
-        cluster.filter_gpus(&selected_node, task.gpu_milli )
+    let gpus = cluster.filter_gpus(&selected_node, task.gpu_milli );
+    let gpus = if task.single_gpu() {
+            let g = gpus
             .max_by_key(|(i, gpu)| *gpu )
             .map(|(i, _)| i)
+            .unwrap();
+
+            vec![g]
+    } else {
+        gpus.map(|(i, _)| i).take(task.num_gpu).collect()
     };
 
-    Some((id, gpu_opt))
+    Some((selected_node.clone(), gpus))
 }

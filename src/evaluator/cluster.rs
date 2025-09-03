@@ -156,29 +156,20 @@ impl ClusterStruct {
             .filter(move |(_i, gpu)| task_gpu <= *gpu)
     }
 
-    pub fn bind_task(&self, task: PodSpec, n: NODE, opt_g: Option<NUM> ) {
-        let node_ref = &self.nodes[n];
+    pub fn bind_task(&self, task: PodSpec, (node_ref, gpu_vec): SchedulingPick ) {
         let mut node =  node_ref.borrow_mut();
 
         node.cpu_rem -= task.cpu_milli;
         node.mem_rem -= task.memory_mib;
 
         if task.single_gpu() {
-            // Consume a portion of gpu g
-            let g = opt_g.unwrap();
+            let g = gpu_vec[0];
             node.gpu_rem[g] -= task.gpu_milli;
 
         } else {
-            // Consume the first num_gpu free GPUs
-            let mut gpu_vec = node.gpu_rem.clone();
-
-            node.gpu_rem.iter()
-                .enumerate()
-                .filter(|&(_, &gpu)| gpu == GPU_MILLI)
-                .take(task.num_gpu)
-                .for_each(|(i, _)| gpu_vec[i] = 0);
-
-            node.gpu_rem = gpu_vec
+            gpu_vec.into_iter().for_each(|g | {
+                node.gpu_rem[g] = 0;
+            })
         }
 
         node.gpu_full = node.gpu_rem.iter()
@@ -302,21 +293,17 @@ mod tests {
         println!("Task:{}\n{}",task.id, task);
 
         let nodes = cluster.filter_nodes( task.clone() );
-        let (id, _) = nodes.choose( &mut cluster.rng.borrow_mut() ).unwrap();
+        let (id, node ) = nodes.choose( &mut cluster.rng.borrow_mut() ).unwrap();
+        
+        let gpus = cluster
+            .filter_gpus( node, task.gpu_milli )
+            .take(task.num_gpu)
+            .map(|(i, _)| i)
+            .collect();
+        
+        let pick = (node.clone(), gpus );
 
-        {
-            let node = cluster.nodes[id].borrow();
-            println!("Before bind:{}\n{}", node.spec.id, node);
-        }
-
-        let opt_ind = if task.single_gpu() { Some(0) } else {None};
-
-        cluster.bind_task( task.clone(), id, opt_ind);
-
-        {
-            let node = cluster.nodes[id].borrow();
-            println!("Before bind:{}\n{}", node.spec.id, node);
-        }
+        cluster.bind_task( task.clone(), pick );
 
         println!("{}", cluster.metrics.borrow().alloc_rate)
     }

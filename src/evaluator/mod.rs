@@ -11,12 +11,13 @@ pub mod cluster;
 use workload::*;
 use cluster::*;
 
+pub type SchedulingPick = (NodeInfo, Vec<NUM>);
 
 // Decides which node to bind the next task to
-type Scheduler = fn( evaluator: &Evaluator, task: PodSpec ) -> Option<(NODE, Option<NUM>)>;
+pub type Scheduler = fn( evaluator: &Evaluator, task: PodSpec ) -> Option<SchedulingPick>;
 
 // Decides when to deploy workload instead of waiting for more tasks
-type Decider = fn( evaluator: &Evaluator ) -> bool;
+pub type Decider = fn( evaluator: &Evaluator ) -> bool;
 
 
 
@@ -36,7 +37,7 @@ struct Evaluator
     cluster: Cluster,
 }
 
-const NUM_LOOPS: usize = 10;
+const NUM_LOOPS: usize = 100;
 
 impl Evaluator {
 
@@ -70,9 +71,9 @@ impl Evaluator {
 
                     self.workload.update_metrics(task, false);
                 },
-                Some((n, opt_g)) => {
+                Some(choice) => {
                     // Scheduling succeeded. Apply to cluster
-                    self.cluster.bind_task(task.clone(), n, opt_g);
+                    self.cluster.bind_task(task.clone(), choice);
 
                     self.workload.update_metrics(task, true);
                 },
